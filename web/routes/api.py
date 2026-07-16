@@ -101,6 +101,80 @@ async def api_styles():
     return engine.style_engine.list_styles()
 
 
+@api_router.post("/api/cards")
+async def api_create_card(data: dict):
+    engine = web_app._engine
+    if not engine:
+        return JSONResponse({"error": "引擎未就绪"}, status_code=503)
+    name = data.get("name", "").strip()
+    if not name:
+        return JSONResponse({"error": "名称不能为空"}, status_code=400)
+    from characters.manager import CharacterCard
+    rules = data.get("rules", [])
+    if isinstance(rules, str):
+        rules = [r.strip() for r in rules.split("\n") if r.strip()]
+    card = CharacterCard({
+        "name": name,
+        "description": data.get("description", ""),
+        "system_prompt": data.get("system_prompt", f"你是{name}。"),
+        "rules": rules,
+        "greeting": data.get("greeting", ""),
+    })
+    engine.character_manager.save(name, card)
+    return {"ok": True, "name": name}
+
+
+@api_router.put("/api/cards/{card_name}")
+async def api_update_card(card_name: str, data: dict):
+    engine = web_app._engine
+    if not engine:
+        return JSONResponse({"error": "引擎未就绪"}, status_code=503)
+    existing = engine.character_manager.get(card_name)
+    if not existing:
+        return JSONResponse({"error": "角色卡不存在"}, status_code=404)
+    from characters.manager import CharacterCard
+    rules = data.get("rules", existing.rules)
+    if isinstance(rules, str):
+        rules = [r.strip() for r in rules.split("\n") if r.strip()]
+    updated = CharacterCard({
+        "name": data.get("name", existing.name),
+        "description": data.get("description", existing.description),
+        "skills": existing.skills,
+        "system_prompt": data.get("system_prompt", existing.system_prompt),
+        "rules": rules,
+        "personality": existing.personality,
+        "greeting": data.get("greeting", existing.greeting),
+        "examples": existing.examples,
+        "learned_traits": existing.learned_traits,
+    })
+    engine.character_manager.save(card_name, updated)
+    return {"ok": True, "name": card_name}
+
+
+@api_router.get("/api/stats/detailed")
+async def api_stats_detailed():
+    engine = web_app._engine
+    if not engine:
+        return {}
+    sessions = engine.session_manager.list_sessions()
+    cards = engine.character_manager.list_cards()
+    platform_counts = {}
+    total_msgs = 0
+    for sid in sessions:
+        s = engine.session_manager.get(sid)
+        if s:
+            p = s.platform or "unknown"
+            platform_counts[p] = platform_counts.get(p, 0) + 1
+            total_msgs += len(s.messages)
+    return {
+        "total_sessions": len(sessions),
+        "total_messages": total_msgs,
+        "total_cards": len(cards),
+        "by_platform": platform_counts,
+        "uptime_seconds": int(time.time() - web_app._start_time),
+    }
+
+
 @api_router.get("/api/learning/{card_name}")
 async def api_learning_history(card_name: str):
     from learning.evolution import EvolutionManager

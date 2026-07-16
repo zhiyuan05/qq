@@ -15,6 +15,8 @@ def set_engine(engine):
 
 
 # 挂载路由（import 必须放在 app 定义之后，避免循环导入）
-from web.routes import api_router, page_router  # noqa: E402
+from web.routes import api_router, page_router, auth_router, ws_router  # noqa: E402
 app.include_router(api_router)
 app.include_router(page_router)
+app.include_router(auth_router)
+app.include_router(ws_router)
