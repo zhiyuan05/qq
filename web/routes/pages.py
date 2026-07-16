@@ -104,10 +104,10 @@ function toggleDark(){
 if(localStorage.getItem('dark')==='true'){document.documentElement.classList.add('dark');document.getElementById('darkBtn').textContent='☀️'}
 async function load(){
   try{
-    const [health,stats,sessions,cards] = await Promise.all([
+    const [health,stats,sessionsResp,cards] = await Promise.all([
       fetch('/api/health').then(r=>r.json()),
       fetch('/api/stats').then(r=>r.json()),
-      fetch('/api/sessions').then(r=>r.json()),
+      fetch('/api/sessions?limit=10').then(r=>r.json()),
       fetch('/api/cards').then(r=>r.json())
     ]);
     const h = Math.floor(health.uptime_seconds/3600);
@@ -119,6 +119,7 @@ async function load(){
       <div class="stat-card"><div class="num">${stats.card_count}</div><div class="label">角色卡</div></div>
       <div class="stat-card"><div class="num">${stats.style_count}</div><div class="label">风格</div></div>
     `;
+    const sessions=sessionsResp.sessions||[];
     const platformIcons = {wechat:'💚',qq:'🐧',console:'💻'};
     document.getElementById('sessions').innerHTML = sessions.length ?
       sessions.slice(0,8).map(s=>`
@@ -181,11 +182,16 @@ function toggleDark(){
   document.getElementById('darkBtn').textContent=document.documentElement.classList.contains('dark')?'☀️':'🌙';
 }
 if(localStorage.getItem('dark')==='true'){document.documentElement.classList.add('dark');document.getElementById('darkBtn').textContent='☀️'}
+let allSessions=[],loaded=0,pageSize=20;
 async function load(){
-  const sessions = await fetch('/api/sessions').then(r=>r.json());
-  const icons = {wechat:'💚',qq:'🐧',console:'💻'};
-  document.getElementById('list').innerHTML = sessions.length ?
-    sessions.map(s=>`
+  const resp=await fetch('/api/sessions?limit='+pageSize+'&offset=0').then(r=>r.json());
+  allSessions=resp.sessions||[];loaded=pageSize;
+  render();
+}
+function render(){
+  const icons={wechat:'💚',qq:'🐧',console:'💻'};
+  document.getElementById('list').innerHTML=allSessions.length?
+    allSessions.map(s=>`
       <div class="item" onclick="location.href='/sessions/${s.id}'">
         <div class="icon">${icons[s.platform]||'📱'}</div>
         <div class="info">
@@ -193,7 +199,15 @@ async function load(){
           <div class="desc">${s.character_card} · ${s.style} · ${s.message_count}条</div>
         </div>
       </div>
-    `).join('') : '<div class="empty">暂无会话</div>';
+    `).join('')+'<div style="text-align:center;padding:12px">'+
+    (allSessions.length>=loaded?'<span class="badge" onclick="loadMore()" style="cursor:pointer;padding:6px 16px">加载更多</span>':'')+'</div>'
+    :'<div class="empty">暂无会话</div>';
+}
+async function loadMore(){
+  const resp=await fetch('/api/sessions?limit='+pageSize+'&offset='+allSessions.length).then(r=>r.json());
+  allSessions=allSessions.concat(resp.sessions||[]);
+  loaded+=pageSize;
+  render();
 }
 load();
 </script></body></html>"""
@@ -305,11 +319,20 @@ def _session_detail_html(session_id: str) -> str:
   <a class="back-btn" href="/sessions">← 返回</a>
   <h1 style="margin-top:8px">{session_id}</h1>
   <div class="subtitle" id="meta"></div>
+  <button class="dark-toggle" onclick="toggleDark()" id="darkBtn" style="position:static;margin-left:auto">🌙</button>
 </div>
 <div class="container">
   <div class="section chat" id="messages"></div>
+  <div style="text-align:center;padding:8px">
+    <button class="btn" onclick="exportSession()" style="background:var(--badge-bg,#e0e7ff);
+      color:#667eea;border:none;padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer">📥 导出对话</button>
+  </div>
 </div>
 <script>
+function toggleDark(){{document.documentElement.classList.toggle('dark');
+  localStorage.setItem('dark',document.documentElement.classList.contains('dark'));
+  document.getElementById('darkBtn').textContent=document.documentElement.classList.contains('dark')?'☀️':'🌙';}}
+if(localStorage.getItem('dark')==='true'){{document.documentElement.classList.add('dark');}}
 async function load(){{
   const d = await fetch('/api/sessions/{session_id}').then(r=>r.json());
   if(d.error){{document.getElementById('messages').innerHTML='<div class="empty">'+d.error+'</div>';return;}}
@@ -320,6 +343,13 @@ async function load(){{
       <div class="content">${{m.content}}</div>
     </div>
   `).join('');
+}}
+async function exportSession(){{
+  const d=await fetch('/api/sessions/{session_id}/export').then(r=>r.json());
+  const text=d.messages.join('\\n\\n');
+  const blob=new Blob([text],{{type:'text/plain'}});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='chat-{session_id}.txt';a.click();
 }}
 load();
 </script></body></html>"""
@@ -441,6 +471,67 @@ async function save(){
 </script></body></html>"""
 
 
+# ── Log Viewer ────────────────────────────────────────────────
+
+LOGS_HTML = """<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>日志 - 聊天机器人</title>
+<style>""" + MOBILE_CSS + """
+.log-container{padding:8px;max-width:800px;margin:0 auto}
+.log-line{font-family:'Courier New',monospace;font-size:11px;line-height:1.5;
+  padding:2px 8px;border-bottom:1px solid var(--border);white-space:pre-wrap;word-break:break-all}
+.log-line:nth-child(odd){background:rgba(0,0,0,.02)}
+.toolbar{padding:8px 12px;display:flex;gap:8px;align-items:center;background:var(--card-bg);
+  border-bottom:1px solid var(--border);position:sticky;top:0;z-index:5}
+.toolbar select,.toolbar button{padding:4px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;
+  background:var(--bg);color:var(--text);cursor:pointer}
+.toolbar button{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none}
+</style></head><body>
+<div class="header">
+  <a class="back-btn" href="/">← 返回</a>
+  <h1 style="margin-top:8px">📋 运行日志</h1>
+  <button class="dark-toggle" onclick="toggleDark()" id="darkBtn">🌙</button>
+</div>
+<div class="toolbar">
+  <button onclick="loadLogs()">🔄 刷新</button>
+  <select id="logLevel" onchange="loadLogs()">
+    <option value="">所有级别</option>
+    <option value="ERROR">ERROR</option>
+    <option value="WARNING">WARNING</option>
+    <option value="INFO">INFO</option>
+  </select>
+  <span id="logCount" style="font-size:12px;color:var(--text-secondary)"></span>
+</div>
+<div class="log-container" id="logs"><div class="empty">加载中...</div></div>
+<div class="nav">
+  <a href="/"><span class="nav-icon">🏠</span>首页</a>
+  <a href="/chat"><span class="nav-icon">💬</span>对话</a>
+  <a href="/sessions"><span class="nav-icon">📋</span>会话</a>
+  <a href="/cards"><span class="nav-icon">🎭</span>角色</a>
+  <a href="/settings"><span class="nav-icon">⚙️</span>设置</a>
+</div>
+<script>
+function toggleDark(){document.documentElement.classList.toggle('dark');
+  localStorage.setItem('dark',document.documentElement.classList.contains('dark'))}
+if(localStorage.getItem('dark')==='true'){document.documentElement.classList.add('dark')}
+async function loadLogs(){
+  document.getElementById('logs').innerHTML='<div class="empty">加载中...</div>';
+  const resp=await fetch('/api/logs?lines=200');
+  const data=await resp.json();
+  const level=document.getElementById('logLevel').value;
+  let lines=data.lines||[];
+  if(level)lines=lines.filter(l=>l.includes('| '+level+' |'));
+  document.getElementById('logs').innerHTML=lines.length?
+    lines.map(l=>'<div class="log-line">'+l.replace(/</g,'&lt;')+'</div>').join(''):
+    '<div class="empty">暂无日志</div>';
+  document.getElementById('logCount').textContent=lines.length+'行';
+}
+loadLogs();
+setInterval(loadLogs,10000);
+</script></body></html>"""
+
+
 # ── Routes ────────────────────────────────────────────────────
 
 @page_router.get("/", response_class=HTMLResponse)
@@ -476,3 +567,8 @@ async def card_detail_page(card_name: str):
 @page_router.get("/settings", response_class=HTMLResponse)
 async def settings_page():
     return SETTINGS_HTML
+
+
+@page_router.get("/logs", response_class=HTMLResponse)
+async def logs_page():
+    return LOGS_HTML

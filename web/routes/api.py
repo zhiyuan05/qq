@@ -29,23 +29,26 @@ async def api_stats():
 
 
 @api_router.get("/api/sessions")
-async def api_sessions():
+async def api_sessions(limit: int = 20, offset: int = 0):
     engine = web_app._engine
     if not engine:
-        return []
+        return {"sessions": [], "total": 0}
+    all_ids = engine.session_manager.list_sessions()
+    total = len(all_ids)
+    page_ids = all_ids[offset:offset + limit]
     sessions = []
-    for sid in engine.session_manager.list_sessions():
-        session = engine.session_manager.get(sid)
-        if session:
+    for sid in page_ids:
+        s = engine.session_manager.get(sid)
+        if s:
             sessions.append({
                 "id": sid,
-                "platform": session.platform,
-                "character_card": session.character_card,
-                "style": session.style,
-                "message_count": len(session.messages),
-                "last_message": session.messages[-1].content[:50] if session.messages else "",
+                "platform": s.platform,
+                "character_card": s.character_card,
+                "style": s.style,
+                "message_count": len(s.messages),
+                "last_message": s.messages[-1].content[:50] if s.messages else "",
             })
-    return sessions
+    return {"sessions": sessions, "total": total, "offset": offset, "limit": limit}
 
 
 @api_router.get("/api/sessions/{session_id}")
@@ -201,3 +204,34 @@ async def api_export_session(session_id: str):
         "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "messages": lines,
     })
+
+
+# ── Logs ─────────────────────────────────────────────────────
+
+
+@api_router.get("/api/logs")
+async def api_logs(lines: int = 50):
+    engine = web_app._engine
+    if not engine:
+        return {"lines": []}
+    try:
+        with open(engine.config.logging.file, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+        return {"lines": all_lines[-min(lines, 500):]}
+    except Exception:
+        return {"lines": [], "error": "无法读取日志"}
+
+
+@api_router.get("/api/platforms/status")
+async def api_platforms_status():
+    engine = web_app._engine
+    if not engine:
+        return {"platforms": []}
+    platforms = []
+    for p in engine._platforms:
+        platforms.append({
+            "name": getattr(p, "name", "unknown"),
+            "running": getattr(p, "_running", False),
+        })
+    return {"platforms": platforms}
+

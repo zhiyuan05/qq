@@ -123,6 +123,8 @@ class ChatBot:
 
     async def stop(self):
         logger.info("正在停止...")
+        # 等待进行中的 LLM 调用
+        await self.engine.wait_for_pending_calls(timeout=15.0)
         await self.plugin_manager.stop_all()
         for platform in self.platforms:
             await platform.stop()

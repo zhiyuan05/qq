@@ -65,6 +65,7 @@ class Engine:
         self._llm: Optional[DeepSeekClient] = deps.get("llm_client")
         self._on_conversation_end = None  # callback for learning scheduler
         self._platforms = []  # registered platforms for broadcast
+        self._pending_llm_calls = 0  # 优雅关闭用
         self._init_pipeline(config)
         self.command_handler = deps.get("command_handler") or CommandHandler(self)
 
@@ -80,7 +81,28 @@ class Engine:
                 timeout=self.config.llm.timeout,
                 max_retries=self.config.llm.max_retries,
             )
+            # 只包装一次
+            original_chat = self._llm.chat
+
+            async def tracked_chat(messages, **kwargs):
+                self._pending_llm_calls += 1
+                try:
+                    return await original_chat(messages, **kwargs)
+                finally:
+                    self._pending_llm_calls -= 1
+
+            self._llm.chat = tracked_chat
         return self._llm
+
+    async def wait_for_pending_calls(self, timeout: float = 10.0):
+        """等待进行中的 LLM 调用完成（优雅关闭用）"""
+        import asyncio
+        waited = 0.0
+        while self._pending_llm_calls > 0 and waited < timeout:
+            await asyncio.sleep(0.1)
+            waited += 0.1
+        if self._pending_llm_calls > 0:
+            logger.warning(f"关闭超时，仍有 {self._pending_llm_calls} 个 LLM 调用未完成")
 
     # ── Pipeline ──────────────────────────────────────────────
     def _init_pipeline(self, config: AppConfig):
