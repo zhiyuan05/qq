@@ -1,7 +1,7 @@
 """配置加载与管理，支持 dot-notation 访问和热重载"""
 import os
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import List
 
 import yaml
 from dotenv import load_dotenv
@@ -161,64 +161,3 @@ def validate_config(config: AppConfig):
         raise ValueError("配置验证失败:\n" + "\n".join(f"  - {e}" for e in errors))
 
 
-class Config:
-    """Dot-notation config wrapper with hot-reload support."""
-
-    def __init__(self, config_path: str = "config/config.yaml"):
-        self._path = Path(config_path)
-        self._data: dict = {}
-        self.reload()
-
-    def reload(self):
-        if self._path.exists():
-            with open(self._path, 'r', encoding='utf-8') as f:
-                self._data = yaml.safe_load(f) or {}
-            logger.info(f"配置已加载: {self._path}")
-        else:
-            logger.warning(f"配置文件不存在: {self._path}，使用空配置")
-            self._data = {}
-
-    def get(self, key: str, default: Any = None) -> Any:
-        keys = key.split(".")
-        value = self._data
-        for k in keys:
-            if isinstance(value, dict):
-                value = value.get(k)
-            else:
-                return default
-            if value is None:
-                return default
-        return value
-
-    def set(self, key: str, value: Any):
-        keys = key.split(".")
-        data = self._data
-        for k in keys[:-1]:
-            if k not in data or not isinstance(data[k], dict):
-                data[k] = {}
-            data = data[k]
-        data[keys[-1]] = value
-
-    def save(self):
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._path, 'w', encoding='utf-8') as f:
-            yaml.dump(self._data, f, allow_unicode=True, default_flow_style=False)
-
-    def to_dict(self) -> dict:
-        return dict(self._data)
-
-
-_config: Optional[Config] = None
-
-
-def get_config() -> Config:
-    global _config
-    if _config is None:
-        _config = Config()
-    return _config
-
-
-def init_config(path: str = "config/config.yaml") -> Config:
-    global _config
-    _config = Config(path)
-    return _config

@@ -1,8 +1,7 @@
 """配置系统测试"""
 import os
 import yaml
-import tempfile
-from utils.config import AppConfig, load_config, Config
+from utils.config import AppConfig, load_config
 
 
 def test_default_config():
@@ -39,44 +38,3 @@ def test_load_config_from_yaml(tmp_path, monkeypatch):
     assert cfg.llm.model == "deepseek-chat"
 
 
-def test_dotnotation_config_load():
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        yaml.dump({
-            "platforms": {"qq": {"enabled": True, "onebot_url": "ws://127.0.0.1:3001"}},
-            "security": {"rate_limit": {"per_user_per_minute": 10}},
-        }, f)
-        f.flush()
-        config = Config(f.name)
-
-    assert config.get("platforms.qq.enabled") is True
-    assert config.get("platforms.qq.onebot_url") == "ws://127.0.0.1:3001"
-    assert config.get("security.rate_limit.per_user_per_minute") == 10
-    assert config.get("nonexistent.key", "default") == "default"
-    os.unlink(f.name)
-
-
-def test_dotnotation_config_set():
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        yaml.dump({}, f)
-        f.flush()
-        config = Config(f.name)
-
-    config.set("security.rate_limit.per_user_per_minute", 15)
-    assert config.get("security.rate_limit.per_user_per_minute") == 15
-    os.unlink(f.name)
-
-
-def test_dotnotation_config_reload():
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        yaml.dump({"test": {"value": 1}}, f)
-        f.flush()
-        config = Config(f.name)
-
-    assert config.get("test.value") == 1
-
-    with open(f.name, 'w') as f2:
-        yaml.dump({"test": {"value": 2}}, f2)
-    config.reload()
-
-    assert config.get("test.value") == 2
-    os.unlink(f.name)
