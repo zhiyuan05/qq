@@ -90,7 +90,8 @@ INDEX_HTML = """<!DOCTYPE html>
 </div>
 <div class="nav">
   <a href="/" class="active"><span class="nav-icon">🏠</span>首页</a>
-  <a href="/sessions"><span class="nav-icon">💬</span>会话</a>
+  <a href="/chat"><span class="nav-icon">💬</span>对话</a>
+  <a href="/sessions"><span class="nav-icon">📋</span>会话</a>
   <a href="/cards"><span class="nav-icon">🎭</span>角色</a>
   <a href="/settings"><span class="nav-icon">⚙️</span>设置</a>
 </div>
@@ -168,7 +169,8 @@ SESSIONS_HTML = """<!DOCTYPE html>
 </div>
 <div class="nav">
   <a href="/"><span class="nav-icon">🏠</span>首页</a>
-  <a href="/sessions" class="active"><span class="nav-icon">💬</span>会话</a>
+  <a href="/chat"><span class="nav-icon">💬</span>对话</a>
+  <a href="/sessions" class="active"><span class="nav-icon">📋</span>会话</a>
   <a href="/cards"><span class="nav-icon">🎭</span>角色</a>
   <a href="/settings"><span class="nav-icon">⚙️</span>设置</a>
 </div>
@@ -214,7 +216,8 @@ CARDS_HTML = """<!DOCTYPE html>
 </div>
 <div class="nav">
   <a href="/"><span class="nav-icon">🏠</span>首页</a>
-  <a href="/sessions"><span class="nav-icon">💬</span>会话</a>
+  <a href="/chat"><span class="nav-icon">💬</span>对话</a>
+  <a href="/sessions"><span class="nav-icon">📋</span>会话</a>
   <a href="/cards" class="active"><span class="nav-icon">🎭</span>角色</a>
   <a href="/settings"><span class="nav-icon">⚙️</span>设置</a>
 </div>
@@ -256,7 +259,8 @@ SETTINGS_HTML = """<!DOCTYPE html>
 </div>
 <div class="nav">
   <a href="/"><span class="nav-icon">🏠</span>首页</a>
-  <a href="/sessions"><span class="nav-icon">💬</span>会话</a>
+  <a href="/chat"><span class="nav-icon">💬</span>对话</a>
+  <a href="/sessions"><span class="nav-icon">📋</span>会话</a>
   <a href="/cards"><span class="nav-icon">🎭</span>角色</a>
   <a href="/settings" class="active"><span class="nav-icon">⚙️</span>设置</a>
 </div>

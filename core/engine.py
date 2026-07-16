@@ -1,6 +1,7 @@
 from __future__ import annotations
 """核心引擎"""
 import json
+import uuid
 from typing import Optional
 
 from utils.config import AppConfig
@@ -36,31 +37,36 @@ logger = setup_logger("engine")
 
 
 class Engine:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, **deps):
+        """依赖注入支持：传入 deps 覆盖自动创建的子系统"""
         self.config = config
 
-        self.character_manager = CharacterManager()
-        self.style_engine = StyleEngine()
-        self.session_manager = SessionManager(
+        self.character_manager = deps.get("character_manager") or CharacterManager()
+        self.style_engine = deps.get("style_engine") or StyleEngine()
+        self.session_manager = deps.get("session_manager") or SessionManager(
             max_messages=config.memory.short_term.max_messages,
             summarize_after=config.memory.short_term.summarize_after,
         )
-        self.router = MessageRouter(
+        self.router = deps.get("router") or MessageRouter(
             command_prefix=config.bot.command_prefix,
             admin_users=config.security.admin_users,
         )
-        self.group_manager = GroupManager()
-        self.entity_memory = EntityMemory()
-        self.long_term_memory = LongTermMemory(top_k=config.memory.long_term.top_k) if config.memory.long_term.enabled else None
-        self.short_term_memory = ShortTermMemory(max_messages=config.memory.short_term.max_messages)
-        self.prompt_builder = PromptBuilder(entity_memory=self.entity_memory)
-        self.summarizer = ConversationSummarizer()
+        self.group_manager = deps.get("group_manager") or GroupManager()
+        self.entity_memory = deps.get("entity_memory") or EntityMemory()
+        self.long_term_memory = deps.get("long_term_memory") or (
+            LongTermMemory(top_k=config.memory.long_term.top_k) if config.memory.long_term.enabled else None
+        )
+        self.short_term_memory = deps.get("short_term_memory") or ShortTermMemory(
+            max_messages=config.memory.short_term.max_messages
+        )
+        self.prompt_builder = deps.get("prompt_builder") or PromptBuilder(entity_memory=self.entity_memory)
+        self.summarizer = deps.get("summarizer") or ConversationSummarizer()
 
-        self._llm: Optional[DeepSeekClient] = None
+        self._llm: Optional[DeepSeekClient] = deps.get("llm_client")
         self._on_conversation_end = None  # callback for learning scheduler
         self._platforms = []  # registered platforms for broadcast
         self._init_pipeline(config)
-        self.command_handler = CommandHandler(self)
+        self.command_handler = deps.get("command_handler") or CommandHandler(self)
 
     def _get_llm(self) -> DeepSeekClient:
         if self._llm is None:
@@ -110,6 +116,10 @@ class Engine:
         return True
 
     async def process_message(self, msg: UnifiedMessage) -> Optional[str]:
+        # 请求追踪 ID
+        request_id = uuid.uuid4().hex[:12]
+        logger.debug(f"[{request_id}] process_message from {msg.user_id}@{msg.platform.value}: {msg.content[:50]}")
+
         # 创建管道上下文
         ctx = PipelineContext(
             user_id=msg.user_id,
@@ -118,9 +128,11 @@ class Engine:
             group_id=msg.group_id,
             is_owner=self.router.is_admin(msg.user_id),
         )
+        ctx.metadata["request_id"] = request_id
 
         # ═══ PIPELINE: on_receive ═══ (限流、空消息过滤、活跃时段)
         if not await self._run_pipeline_stage(ctx, "on_receive"):
+            logger.info(f"[{request_id}] blocked by pipeline: {ctx.block_reason}")
             return ctx.block_reason if ctx.blocked else None
 
         # 群聊 @mention 检测
@@ -155,6 +167,8 @@ class Engine:
             ctx.response = await self._handle_command(msg, parsed)
         else:
             ctx.response = await self._handle_chat(msg)
+
+        logger.debug(f"[{request_id}] response generated: {len(ctx.response or '')} chars")
 
         # ═══ PIPELINE: on_response ═══ (内容过滤、消息拆分)
         if not await self._run_pipeline_stage(ctx, "on_response"):

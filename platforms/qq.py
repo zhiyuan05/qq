@@ -27,6 +27,8 @@ class QQPlatform(BasePlatform):
         logger.info(f"QQ适配器启动，连接: {self.onebot_url}")
 
     async def _poll_loop(self):
+        retry_delay = 1
+        max_retry = 60
         async with httpx.AsyncClient() as client:
             while self._running:
                 try:
@@ -36,15 +38,18 @@ class QQPlatform(BasePlatform):
                         timeout=5,
                     )
                     if resp.status_code == 200:
+                        retry_delay = 1  # 成功后重置
                         data = resp.json()
                         for msg in data.get("data", []):
                             await self._process_raw_message(msg)
                 except httpx.ConnectError:
-                    logger.warning("无法连接到NapCat，等待重试...")
-                    await asyncio.sleep(5)
+                    logger.warning(f"无法连接到NapCat({retry_delay}s后重试)...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, max_retry)
                 except Exception as e:
                     logger.error(f"QQ轮询错误: {e}")
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, max_retry)
 
     async def _process_raw_message(self, raw: dict):
         try:
