@@ -2,6 +2,7 @@
 import time
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 import web.app as web_app
 
@@ -111,17 +112,14 @@ async def api_learning_history(card_name: str):
 async def api_export_session(session_id: str):
     engine = web_app._engine
     if not engine:
-        from fastapi.responses import JSONResponse
         return JSONResponse({"error": "引擎未就绪"}, status_code=503)
     session = engine.session_manager.get(session_id)
     if not session:
-        from fastapi.responses import JSONResponse
         return JSONResponse({"error": "会话不存在"}, status_code=404)
     lines = []
     for m in session.messages:
         role = "我" if m.role == "user" else "AI"
         lines.append(f"[{role}] {m.content}")
-    from fastapi.responses import JSONResponse
     return JSONResponse({
         "session_id": session_id,
         "platform": session.platform,
