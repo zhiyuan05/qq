@@ -1,3 +1,4 @@
+from __future__ import annotations
 """核心引擎"""
 import json
 from typing import Optional

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """消息路由"""
 import time
 from typing import Dict, Optional, Tuple

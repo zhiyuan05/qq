@@ -1,3 +1,4 @@
+from __future__ import annotations
 """命令处理器 - 从 Engine 拆分"""
 from typing import List, Optional
 

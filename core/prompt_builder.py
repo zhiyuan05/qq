@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Prompt 构建器"""
 from typing import Dict, List, Optional
 

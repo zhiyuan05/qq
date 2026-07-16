@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Message pipeline with middleware chain."""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field

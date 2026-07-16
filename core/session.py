@@ -1,3 +1,4 @@
+from __future__ import annotations
 """会话管理"""
 from dataclasses import dataclass, field
 from datetime import datetime

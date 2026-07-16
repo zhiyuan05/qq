@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Three-tier rate limiter: per-user, per-group, global + daily cap + URL limit + depth control."""
 import time
 from collections import defaultdict

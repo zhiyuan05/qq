@@ -1,3 +1,4 @@
+from __future__ import annotations
 """指令解析器"""
 from dataclasses import dataclass, field
 from typing import List

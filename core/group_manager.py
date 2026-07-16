@@ -1,3 +1,4 @@
+from __future__ import annotations
 """群聊管理"""
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional

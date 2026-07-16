@@ -1,3 +1,4 @@
+from __future__ import annotations
 """角色卡管理器"""
 from pathlib import Path
 from typing import Dict, List, Optional
