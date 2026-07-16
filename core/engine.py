@@ -45,9 +45,6 @@ class Engine:
         )
         self.router = MessageRouter(
             command_prefix=config.bot.command_prefix,
-            rate_limit_enabled=config.rate_limit.enabled,
-            max_per_minute=config.rate_limit.max_per_minute,
-            max_per_hour=config.rate_limit.max_per_hour,
             admin_users=config.security.admin_users,
         )
         self.group_manager = GroupManager()
