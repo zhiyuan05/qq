@@ -9,6 +9,7 @@ from core.session import SessionManager, Session
 from core.router import MessageRouter
 from core.prompt_builder import PromptBuilder
 from core.command_parser import ParsedCommand
+from core.commands import CommandHandler
 from core.group_manager import GroupManager
 from core.pipeline import Pipeline, PipelineContext
 from core.middleware.rate_limit import RateLimitMiddleware
@@ -58,6 +59,7 @@ class Engine:
         self._on_conversation_end = None  # callback for learning scheduler
         self._platforms = []  # registered platforms for broadcast
         self._init_pipeline(config)
+        self.command_handler = CommandHandler(self)
 
     def _get_llm(self) -> DeepSeekClient:
         if self._llm is None:
@@ -256,151 +258,7 @@ class Engine:
             default_character=self.config.bot.default_character,
             default_style=self.config.bot.default_style,
         )
-
-        cmd = parsed.command
-        sub = parsed.subcommand
-
-        if cmd == "help":
-            return self._help_text()
-        elif cmd == "new":
-            self.session_manager.clear(msg.session_key)
-            return "已开启新会话。"
-        elif cmd == "undo":
-            session.undo_last_exchange()
-            return "已撤销上一轮对话。"
-        elif cmd == "card":
-            return self._handle_card_command(session, sub, parsed.args)
-        elif cmd == "style":
-            return self._handle_style_command(session, sub, parsed.args)
-        elif cmd == "memory":
-            return await self._handle_memory_command(msg, sub, parsed.args)
-        elif cmd == "learn":
-            return await self._handle_learn_command(session, sub, parsed.args)
-        elif cmd == "context":
-            msg_count = len(session.messages)
-            return f"当前会话: {msg_count} 条消息\n角色卡: {session.character_card}\n风格: {session.style}"
-        elif cmd == "token":
-            total = sum(m.token_count for m in session.messages)
-            return f"当前会话 token 估算: {total}"
-        elif cmd == "history":
-            n = int(parsed.args[0]) if parsed.args else 10
-            recent = session.get_recent_messages(n)
-            if not recent:
-                return "暂无对话历史"
-            lines = []
-            for m in recent:
-                role = "我" if m["role"] == "user" else "AI"
-                lines.append(f"[{role}] {m['content'][:100]}")
-            return "\n".join(lines)
-        elif cmd == "settings":
-            return self._handle_settings(session, sub, parsed.args)
-        elif cmd == "admin":
-            return await self._handle_admin(msg, session, sub, parsed.args)
-        elif cmd == "search":
-            return await self._handle_search(parsed.args)
-        elif cmd == "group":
-            return self._handle_group_command(msg, sub, parsed.args)
-
-        return f"未知指令: /{cmd}，输入 /help 查看帮助"
-
-    def _handle_card_command(self, session: Session, sub: str, args: list) -> str:
-        if sub == "list":
-            cards = self.character_manager.list_cards()
-            current = session.character_card
-            lines = [f"{'→ ' if c == current else '  '}{c}" for c in cards]
-            return "角色卡列表:\n" + "\n".join(lines)
-        elif sub == "show":
-            name = args[0] if args else session.character_card
-            card = self.character_manager.get(name)
-            if not card:
-                return f"角色卡不存在: {name}"
-            return (f"角色卡: {card.name}\n"
-                    f"描述: {card.description}\n"
-                    f"技能: {card.skills}\n"
-                    f"规则: {', '.join(card.rules)}\n"
-                    f"问候语: {card.greeting}\n"
-                    f"学习版本: {card.learned_traits.get('learning_version', 0)}")
-        elif sub == "use" and args:
-            name = args[0]
-            if self.character_manager.get(name):
-                session.character_card = name
-                return f"已切换到角色卡: {name}"
-            return f"角色卡不存在: {name}"
-        elif sub == "create" and args:
-            name = args[0]
-            from characters.manager import CharacterCard
-            card = CharacterCard({"name": name, "system_prompt": f"你是{name}。", "rules": ["以中文输出为主"]})
-            self.character_manager.save(name, card)
-            return f"已创建角色卡: {name}"
-        return "用法: /card list | /card show [名称] | /card use <名称> | /card create <名称>"
-
-    def _handle_style_command(self, session: Session, sub: str, args: list) -> str:
-        if sub == "list":
-            styles = self.style_engine.list_styles()
-            current = session.style
-            lines = [f"{'→ ' if s == current else '  '}{s}" for s in styles]
-            return "风格列表:\n" + "\n".join(lines)
-        elif sub == "show":
-            name = args[0] if args else session.style
-            style = self.style_engine.get(name)
-            if not style:
-                return f"风格不存在: {name}"
-            return (f"风格: {style.name}\n"
-                    f"描述: {style.description}\n"
-                    f"提示词: {style.prompt_modifier[:100]}...")
-        elif sub == "use" and args:
-            name = args[0]
-            if self.style_engine.get(name):
-                session.style = name
-                return f"已切换风格: {name}"
-            return f"风格不存在: {name}"
-        return "用法: /style list | /style show [名称] | /style use <名称>"
-
-    async def _handle_memory_command(self, msg: UnifiedMessage, sub: str, args: list) -> str:
-        if sub == "profile":
-            profile = self.entity_memory.get_profile_text(msg.user_id)
-            return profile or "暂无用户画像"
-        elif sub == "recall" and args:
-            query = " ".join(args)
-            if self.long_term_memory:
-                results = self.long_term_memory.search(query, user_id=msg.user_id)
-                if results:
-                    return "\n".join(f"- {r['text'][:100]}" for r in results)
-            return "未找到相关记忆"
-        elif sub == "forget" and args:
-            key = " ".join(args)
-            if self.entity_memory.forget(msg.user_id, key):
-                return f"已删除记忆: {key}"
-            return f"未找到记忆: {key}"
-        elif sub == "clear":
-            self.entity_memory.clear(msg.user_id)
-            if self.long_term_memory:
-                self.long_term_memory.clear(msg.user_id)
-            return "已清空所有记忆"
-        return "用法: /memory profile | /memory recall <关键词> | /memory forget <主题> | /memory clear"
-
-    async def _handle_learn_command(self, session: Session, sub: str, args: list) -> str:
-        if sub == "now":
-            return await self._run_learning(session)
-        elif sub == "status":
-            return f"当前角色卡: {session.character_card}\n学习间隔: {self.config.learning.trigger_interval} 条对话"
-        elif sub == "history":
-            from learning.evolution import EvolutionManager
-            em = EvolutionManager()
-            history = em.get_evolution_history(session.character_card)
-            if not history:
-                return "暂无学习历史"
-            lines = []
-            for h in history[-5:]:
-                lines.append(f"- {h.get('summary', '无摘要')}")
-            return "学习历史:\n" + "\n".join(lines)
-        elif sub == "reset":
-            from learning.evolution import EvolutionManager
-            em = EvolutionManager()
-            if em.reset_card(session.character_card):
-                return f"已重置角色卡 {session.character_card} 的学习结果"
-            return "重置失败"
-        return "用法: /learn now | /learn status | /learn history | /learn reset"
+        return await self.command_handler.handle(msg, parsed, session)
 
     async def run_learning_all(self):
         """对所有活跃会话执行学习（供调度器调用）"""
@@ -410,55 +268,11 @@ class Engine:
             session = self.session_manager.get(sid)
             if session and len(session.messages) >= 10:
                 try:
-                    await self._run_learning(session)
+                    await self.command_handler._run_learning(session)
                     count += 1
                 except Exception as e:
                     logger.error(f"会话 {sid} 学习失败: {e}")
         logger.info(f"批量学习完成，处理了 {count} 个会话")
-
-    async def _run_learning(self, session: Session) -> str:
-        """执行完整学习流程"""
-        try:
-            from learning.analyzer import LearningAnalyzer
-            from learning.evolution import EvolutionManager
-
-            # 收集近期对话
-            conversations = []
-            for m in session.messages:
-                conversations.append({"role": m.role, "content": m.content})
-
-            if not conversations:
-                return "没有对话记录可供学习"
-
-            # 分析
-            analyzer = LearningAnalyzer(llm_client=self._get_llm())
-            traits = await analyzer.analyze(conversations)
-
-            if not traits:
-                return "学习分析未产生结果"
-
-            # 备份 + 应用
-            evolution = EvolutionManager()
-            evolution.backup_card(session.character_card)
-
-            if self.config.learning.auto_apply:
-                evolution.apply_learned_traits(session.character_card, traits)
-
-            # 保存报告
-            report = {
-                "character_card": session.character_card,
-                "conversations_analyzed": len(conversations),
-                "traits_learned": traits,
-                "summary": traits.get("summary", ""),
-            }
-            evolution.save_report(session.character_card, report)
-
-            summary = traits.get("summary", "学习完成")
-            return f"学习完成！分析了 {len(conversations)} 条对话。\n摘要: {summary}"
-
-        except Exception as e:
-            logger.error(f"学习失败: {e}")
-            return f"学习失败: {e}"
 
     async def _extract_entities(self, user_id: str, user_msg: str, assistant_msg: str):
         try:
@@ -489,137 +303,3 @@ class Engine:
             logger.info(f"会话 {session.session_id} 已摘要，保留 {keep} 条消息")
         except Exception as e:
             logger.error(f"摘要失败: {e}")
-
-    def _handle_settings(self, session: Session, sub: str, args: list) -> str:
-        if sub == "show":
-            return f"当前设置:\n角色卡: {session.character_card}\n风格: {session.style}"
-        elif sub == "character" and args:
-            name = args[0]
-            if self.character_manager.get(name):
-                session.character_card = name
-                return f"默认角色卡已设为: {name}"
-            return f"角色卡不存在: {name}"
-        elif sub == "style" and args:
-            name = args[0]
-            if self.style_engine.get(name):
-                session.style = name
-                return f"默认风格已设为: {name}"
-            return f"风格不存在: {name}"
-        return "用法: /settings show | /settings character <名称> | /settings style <名称>"
-
-    async def _handle_admin(self, msg: UnifiedMessage, session: Session, sub: str, args: list) -> str:
-        if not self.router.is_admin(msg.user_id):
-            return "权限不足，仅管理员可用"
-
-        if sub == "users":
-            sessions = self.session_manager.list_sessions()
-            return f"活跃会话数: {len(sessions)}\n" + "\n".join(sessions[:20])
-        elif sub == "logs":
-            try:
-                with open(self.config.logging.file, "r", encoding="utf-8") as f:
-                    lines = f.readlines()[-20:]
-                return "".join(lines)
-            except Exception:
-                return "无法读取日志"
-        elif sub == "reload":
-            from utils.config import load_config
-            try:
-                self.config = load_config()
-                return "配置已重载"
-            except Exception as e:
-                return f"重载失败: {e}"
-        elif sub == "broadcast" and args:
-            text = " ".join(args)
-            count = 0
-            for sid in self.session_manager.list_sessions():
-                session = self.session_manager.get(sid)
-                if session:
-                    for platform in self._platforms:
-                        try:
-                            await platform.send_message(session.user_id, text)
-                            count += 1
-                            break
-                        except Exception:
-                            continue
-            return f"广播已发送到 {count} 个会话"
-        return "用法: /admin users | /admin logs | /admin reload | /admin broadcast <消息>"
-
-    def _handle_group_command(self, msg: UnifiedMessage, sub: str, args: list) -> str:
-        if not msg.group_id:
-            return "此指令仅在群聊中可用"
-
-        group = self.group_manager.get_or_create(msg.platform.value, msg.group_id)
-
-        if sub == "info":
-            return (f"群配置:\n"
-                    f"角色卡: {group.character_card or '默认'}\n"
-                    f"风格: {group.style or '默认'}\n"
-                    f"仅@回复: {'是' if group.mention_only else '否'}\n"
-                    f"管理员: {', '.join(group.admins) or '无'}")
-        elif sub == "mention":
-            if not self.router.is_admin(msg.user_id):
-                return "权限不足"
-            mode = args[0] if args else "on"
-            group.mention_only = mode.lower() in ("on", "true", "1")
-            return f"仅@回复模式: {'开启' if group.mention_only else '关闭'}"
-        elif sub == "character" and args:
-            name = args[0]
-            if self.character_manager.get(name):
-                group.character_card = name
-                return f"群角色卡已设为: {name}"
-            return f"角色卡不存在: {name}"
-        elif sub == "style" and args:
-            name = args[0]
-            if self.style_engine.get(name):
-                group.style = name
-                return f"群风格已设为: {name}"
-            return f"风格不存在: {name}"
-        return "用法: /group info | /group mention on/off | /group character <名称> | /group style <名称>"
-
-    async def _handle_search(self, args: list) -> str:
-        if not args:
-            return "用法: /search <关键词>"
-        query = " ".join(args)
-        try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    "https://api.duckduckgo.com/",
-                    params={"q": query, "format": "json", "no_html": 1},
-                    timeout=10,
-                )
-                if resp.status_code != 200:
-                    return "搜索失败"
-                data = resp.json()
-                results = []
-                if data.get("Abstract"):
-                    results.append(f"📖 {data.get('Heading', '')}\n{data['Abstract']}\n{data.get('AbstractURL', '')}")
-                for topic in data.get("RelatedTopics", [])[:3]:
-                    if isinstance(topic, dict) and topic.get("Text"):
-                        results.append(f"🔗 {topic['Text'][:100]}\n{topic.get('FirstURL', '')}")
-                return "\n\n".join(results) if results else f"未找到关于「{query}」的结果"
-        except Exception as e:
-            return f"搜索失败: {e}"
-
-    def _help_text(self) -> str:
-        return """可用指令:
-/card list - 列出角色卡
-/card show [名称] - 查看角色卡详情
-/card use <名称> - 切换角色卡
-/style list - 列出风格
-/style show [名称] - 查看风格详情
-/style use <名称> - 切换风格
-/memory profile - 查看用户画像
-/memory recall <关键词> - 搜索记忆
-/memory clear - 清空记忆
-/learn now - 触发学习
-/learn status - 学习状态
-/search <关键词> - 联网搜索
-/group info - 群配置(群聊)
-/group mention on/off - @才回复(群聊)
-/settings show - 查看设置
-/context - 查看会话状态
-/history [n] - 查看历史
-/undo - 撤销上轮对话
-/new - 新会话
-/help - 帮助"""
