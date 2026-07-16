@@ -2,8 +2,6 @@
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
-from web.app import _engine
-
 page_router = APIRouter()
 
 # ── Mobile-first CSS (inline for zero dependency) ─────────────

@@ -3,36 +3,38 @@ import time
 
 from fastapi import APIRouter
 
-from web.app import _engine, _start_time
+import web.app as web_app
 
 api_router = APIRouter()
 
 
 @api_router.get("/api/health")
 async def api_health():
-    uptime = int(time.time() - _start_time)
+    uptime = int(time.time() - web_app._start_time)
     return {"status": "ok", "uptime_seconds": uptime}
 
 
 @api_router.get("/api/stats")
 async def api_stats():
-    if not _engine:
+    engine = web_app._engine
+    if not engine:
         return {"session_count": 0, "card_count": 0, "style_count": 0, "entity_count": 0}
     return {
-        "session_count": len(_engine.session_manager.list_sessions()),
-        "card_count": len(_engine.character_manager.list_cards()),
-        "style_count": len(_engine.style_engine.list_styles()),
-        "entity_count": sum(len(v) for v in _engine.entity_memory._entities.values()),
+        "session_count": len(engine.session_manager.list_sessions()),
+        "card_count": len(engine.character_manager.list_cards()),
+        "style_count": len(engine.style_engine.list_styles()),
+        "entity_count": sum(len(v) for v in engine.entity_memory._entities.values()),
     }
 
 
 @api_router.get("/api/sessions")
 async def api_sessions():
-    if not _engine:
+    engine = web_app._engine
+    if not engine:
         return []
     sessions = []
-    for sid in _engine.session_manager.list_sessions():
-        session = _engine.session_manager.get(sid)
+    for sid in engine.session_manager.list_sessions():
+        session = engine.session_manager.get(sid)
         if session:
             sessions.append({
                 "id": sid,
@@ -47,9 +49,10 @@ async def api_sessions():
 
 @api_router.get("/api/sessions/{session_id}")
 async def api_session_detail(session_id: str):
-    if not _engine:
+    engine = web_app._engine
+    if not engine:
         return {"error": "引擎未就绪"}
-    session = _engine.session_manager.get(session_id)
+    session = engine.session_manager.get(session_id)
     if not session:
         return {"error": "会话不存在"}
     messages = []
@@ -67,16 +70,18 @@ async def api_session_detail(session_id: str):
 
 @api_router.get("/api/cards")
 async def api_cards():
-    if not _engine:
+    engine = web_app._engine
+    if not engine:
         return []
-    return _engine.character_manager.list_cards()
+    return engine.character_manager.list_cards()
 
 
 @api_router.get("/api/cards/{card_name}")
 async def api_card_detail(card_name: str):
-    if not _engine:
+    engine = web_app._engine
+    if not engine:
         return {"error": "引擎未就绪"}
-    card = _engine.character_manager.get(card_name)
+    card = engine.character_manager.get(card_name)
     if not card:
         return {"error": "角色卡不存在"}
     return {
@@ -89,9 +94,10 @@ async def api_card_detail(card_name: str):
 
 @api_router.get("/api/styles")
 async def api_styles():
-    if not _engine:
+    engine = web_app._engine
+    if not engine:
         return []
-    return _engine.style_engine.list_styles()
+    return engine.style_engine.list_styles()
 
 
 @api_router.get("/api/learning/{card_name}")
@@ -103,10 +109,11 @@ async def api_learning_history(card_name: str):
 
 @api_router.get("/api/sessions/{session_id}/export")
 async def api_export_session(session_id: str):
-    if not _engine:
+    engine = web_app._engine
+    if not engine:
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "引擎未就绪"}, status_code=503)
-    session = _engine.session_manager.get(session_id)
+    session = engine.session_manager.get(session_id)
     if not session:
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "会话不存在"}, status_code=404)

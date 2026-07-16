@@ -94,7 +94,7 @@ class ChatBot:
             web_config = uvicorn.Config(web_app, host=self.config.web.host, port=self.config.web.port, log_level="warning")
             web_server = uvicorn.Server(web_config)
             asyncio.create_task(web_server.serve())
-            logger.info(f"Web管理面板已启动: http://localhost:{web_port}")
+            logger.info(f"Web管理面板已启动: http://localhost:{self.config.web.port}")
         except Exception as e:
             logger.error(f"Web面板启动失败: {e}")
 
