@@ -1,0 +1,77 @@
+platforms:
+  qq:
+    enabled: true
+    onebot_url: "ws://127.0.0.1:3001"
+    max_msg_length: 2000
+  telegram:
+    enabled: false
+    token: ""
+    owner_id: ""
+    allowed_users: []
+    group_mode: "mention"
+
+llm:
+  primary:
+    provider: "deepseek"
+    api_key: ""
+    model: "deepseek-chat"
+    max_tokens: 2048
+    temperature: 0.7
+  backup:
+    provider: "openai_compatible"
+    api_key: ""
+    base_url: ""
+    model: ""
+  ollama:
+    enabled: false
+    model: "qwen2.5:7b"
+  budget:
+    daily_token_limit: 500000
+    warn_at_percent: 80
+
+security:
+  rate_limit:
+    per_user_per_minute: 10
+    per_group_per_minute: 20
+    global_per_hour: 200
+    cooldown_minutes: 5
+  conversation:
+    max_depth: 20
+    cooldown_after_depth: 10
+  daily_message_cap: 500
+  active_hours:
+    start: "08:00"
+    end: "23:00"
+    timezone: "Asia/Shanghai"
+  sensitive_words_file: "config/sensitive_words.txt"
+  circuit_breaker:
+    failure_threshold: 0.3
+    window_seconds: 300
+    recovery_seconds: 600
+
+memory:
+  short_term:
+    max_messages: 50
+    summarize_after: 20
+  long_term:
+    relevance_threshold: 0.7
+    max_retrieval: 5
+    archive_after_days: 60
+  entity:
+    cleanup_after_days: 30
+
+characters:
+  default: "default"
+  dir: "characters/"
+
+web:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8080
+  auth_token: ""
+
+logging:
+  level: "INFO"
+  file: "logs/chatbot.log"
+  max_size_mb: 50
+  backup_count: 5

@@ -1,0 +1,59 @@
+services:
+  # 微信机器人 (wechatbot-webhook)
+  wechat:
+    image: dannicool/docker-wechatbot-webhook:latest
+    container_name: wechat-webhook
+    restart: unless-stopped
+    ports:
+      - "19870:3001"     # Webhook API + WebUI (内部端口3001)
+    volumes:
+      - ./data/wechat:/app/log
+    networks:
+      - chatbot-net
+
+  # QQ机器人后端 (NapCat)
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
+    restart: unless-stopped
+    ports:
+      - "5001:3001"      # HTTP API (主机5001 -> 容器3001)
+      - "6099:6099"      # WebUI 登录
+    environment:
+      - NAPCAT_UID=1000
+      - NAPCAT_GID=1000
+      - ACCOUNT=你的QQ号
+    volumes:
+      - ./data/napcat:/app/.config/QQ
+    networks:
+      - chatbot-net
+
+  # 聊天机器人主服务
+  chatbot:
+    build: .
+    container_name: chatbot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"      # Web管理面板
+      - "19871:19871"    # 微信回调接收
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml
+      - ./characters:/app/characters
+    depends_on:
+      - wechat
+      - napcat
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - chatbot-net
+
+networks:
+  chatbot-net:
+    driver: bridge

@@ -1,0 +1,81 @@
+bot:
+  name: "AI助手"
+  default_character: "default"
+  default_style: "casual"
+  command_prefix: "/"
+
+llm:
+  provider: "deepseek"
+  model: "deepseek-chat"
+  fallback_model: "deepseek-reasoner"
+  max_tokens: 2048
+  temperature: 0.7
+  timeout: 30
+  max_retries: 3
+  stream: true
+
+memory:
+  short_term:
+    max_messages: 50
+    summarize_after: 30
+  long_term:
+    enabled: true
+    vector_db: "chroma"
+    top_k: 5
+  entity:
+    enabled: true
+    auto_extract: true
+
+platforms:
+  wechat:
+    enabled: true
+    mode: "auto"                    # auto / wcf / webhook
+    webhook_url: "http://wechat:3001"   # wechatbot-webhook 内部端口
+    webhook_token: ""               # webhook 认证 token
+    callback_url: "http://chatbot:19871/wechat/callback"  # 消息回调地址
+    auto_accept_friend: false
+    allowed_users: []
+    allowed_groups: []
+  qq:
+    enabled: true
+    onebot_url: "http://napcat:3001"
+    allowed_users: []
+    allowed_groups: []
+
+rate_limit:
+  enabled: true
+  max_per_minute: 20
+  max_per_hour: 200
+
+security:
+  admin_users: []
+  content_filter: false
+  max_message_length: 2000
+
+delay:
+  enabled: true
+  min_seconds: 0.5
+  max_seconds: 3.0
+  chars_per_second: 15.0
+
+web:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8080
+
+plugins:
+  web_search:
+    enabled: true
+    max_results: 3
+
+learning:
+  enabled: true
+  trigger_interval: 50
+  trigger_schedule: "03:00"
+  max_history_for_learning: 200
+  auto_apply: true
+  backup_before_learn: true
+
+logging:
+  level: "INFO"
+  file: "data/logs/chatbot.log"

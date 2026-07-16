@@ -1,0 +1,4 @@
+# One word per line, lines starting with # are comments
+# Add sensitive words here
+赌博
+色情

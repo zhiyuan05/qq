@@ -1,0 +1,35 @@
+styles:
+  casual:
+    name: "随性闲聊"
+    description: "轻松随意的口吻，可用网络用语和表情"
+    prompt_modifier: "用轻松随意的口吻回复，可以使用网络用语和表情符号，像朋友聊天一样自然。"
+    emoji_density: 0.3
+    max_length: 200
+
+  professional:
+    name: "专业严谨"
+    description: "专业严谨，逻辑清晰，引用来源"
+    prompt_modifier: "用专业、严谨的方式回复，逻辑清晰，结构化输出，必要时引用来源。"
+    emoji_density: 0.0
+    max_length: 500
+
+  creative:
+    name: "创意写作"
+    description: "富有想象力，善用比喻和修辞"
+    prompt_modifier: "用富有创意和想象力的方式回复，善用比喻、排比等修辞手法，语言生动。"
+    emoji_density: 0.1
+    max_length: 800
+
+  concise:
+    name: "极简回复"
+    description: "最简短的方式，只说重点"
+    prompt_modifier: "用最简短的方式回复，只说核心要点，不展开解释，除非用户要求详细说明。"
+    emoji_density: 0.0
+    max_length: 100
+
+  socratic:
+    name: "苏格拉底式"
+    description: "通过提问引导思考"
+    prompt_modifier: "通过提问引导用户自己思考和发现问题的答案，而不是直接给出答案。每次回复以一个引导性问题结尾。"
+    emoji_density: 0.0
+    max_length: 300
