@@ -4,13 +4,20 @@ from typing import Optional
 
 from utils.config import AppConfig
 from utils.logger import setup_logger
-from utils.message_splitter import split_message
 from platforms.models import UnifiedMessage
 from core.session import SessionManager, Session
 from core.router import MessageRouter
 from core.prompt_builder import PromptBuilder
 from core.command_parser import ParsedCommand
 from core.group_manager import GroupManager
+from core.pipeline import Pipeline, PipelineContext
+from core.middleware.rate_limit import RateLimitMiddleware
+from core.middleware.filter import FilterMiddleware
+from core.middleware.active_window import ActiveWindowMiddleware
+from core.middleware.safety import SafetyMiddleware
+from core.middleware.content_filter import ContentFilterMiddleware
+from core.middleware.split import SplitMiddleware
+from core.middleware.delay import DelayMiddleware
 from characters.manager import CharacterManager
 from styles.engine import StyleEngine
 from llm.client import DeepSeekClient
@@ -19,6 +26,9 @@ from memory.short_term import ShortTermMemory
 from memory.entity_memory import EntityMemory
 from memory.long_term import LongTermMemory
 from memory.summarizer import ConversationSummarizer
+from security.rate_limiter import RateLimiter
+from security.circuit_breaker import CircuitBreaker
+from security.content_filter import ContentFilter
 
 logger = setup_logger("engine")
 
@@ -50,6 +60,7 @@ class Engine:
         self._llm: Optional[DeepSeekClient] = None
         self._on_conversation_end = None  # callback for learning scheduler
         self._platforms = []  # registered platforms for broadcast
+        self._init_pipeline(config)
 
     def _get_llm(self) -> DeepSeekClient:
         if self._llm is None:
@@ -65,7 +76,53 @@ class Engine:
             )
         return self._llm
 
+    # ── Pipeline ──────────────────────────────────────────────
+    def _init_pipeline(self, config: AppConfig):
+        rate_limiter = RateLimiter(
+            per_user_per_minute=config.rate_limit.max_per_minute,
+            per_group_per_minute=60,
+            global_per_hour=config.rate_limit.max_per_hour,
+        )
+        breaker = CircuitBreaker()
+
+        middleware = [
+            RateLimitMiddleware(rate_limiter),
+            FilterMiddleware(),
+            ActiveWindowMiddleware(),
+            SafetyMiddleware(breaker),
+        ]
+
+        if config.security.content_filter:
+            cf = ContentFilter()
+            middleware.append(ContentFilterMiddleware(cf))
+
+        middleware.append(SplitMiddleware(max_length=config.security.max_message_length))
+        middleware.append(DelayMiddleware())
+
+        self.pipeline = Pipeline(middleware)
+
+    async def _run_pipeline_stage(self, ctx: PipelineContext, stage: str) -> bool:
+        """Run a single stage across all middleware in order."""
+        for mw in self.pipeline._middleware:
+            method = getattr(mw, stage, None)
+            if method and not await method(ctx):
+                return False
+        return True
+
     async def process_message(self, msg: UnifiedMessage) -> Optional[str]:
+        # 创建管道上下文
+        ctx = PipelineContext(
+            user_id=msg.user_id,
+            content=msg.content,
+            platform=msg.platform.value,
+            group_id=msg.group_id,
+            is_owner=self.router.is_admin(msg.user_id),
+        )
+
+        # ═══ PIPELINE: on_receive ═══ (限流、空消息过滤、活跃时段)
+        if not await self._run_pipeline_stage(ctx, "on_receive"):
+            return ctx.block_reason if ctx.blocked else None
+
         # 群聊 @mention 检测
         if msg.group_id:
             is_mentioned, clean_content = self._check_mention(msg)
@@ -89,10 +146,25 @@ class Engine:
                 return None
             return reason
 
-        if parsed and parsed.is_command:
-            return await self._handle_command(msg, parsed)
+        # ═══ PIPELINE: on_llm ═══ (LLM 调用前钩子)
+        if not await self._run_pipeline_stage(ctx, "on_llm"):
+            return ctx.block_reason if ctx.blocked else None
 
-        return await self._handle_chat(msg)
+        # 处理消息
+        if parsed and parsed.is_command:
+            ctx.response = await self._handle_command(msg, parsed)
+        else:
+            ctx.response = await self._handle_chat(msg)
+
+        # ═══ PIPELINE: on_response ═══ (内容过滤、消息拆分)
+        if not await self._run_pipeline_stage(ctx, "on_response"):
+            return ctx.block_reason if ctx.blocked else None
+
+        # ═══ PIPELINE: on_send ═══ (熔断检查、发送延迟)
+        if not await self._run_pipeline_stage(ctx, "on_send"):
+            return ctx.block_reason if ctx.blocked else None
+
+        return ctx.response
 
     def _check_mention(self, msg: UnifiedMessage) -> tuple:
         """检测消息是否@了机器人，返回 (is_mentioned, clean_content)"""
@@ -179,9 +251,7 @@ class Engine:
         if is_new_session and character.greeting:
             response = f"{character.greeting}\n\n{response}"
 
-        max_len = self.config.security.max_message_length
-        chunks = split_message(response, max_len)
-        return "\n\n".join(chunks)
+        return response
 
     async def _handle_command(self, msg: UnifiedMessage, parsed: ParsedCommand) -> str:
         session = self.session_manager.get_or_create(

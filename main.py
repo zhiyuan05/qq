@@ -3,7 +3,7 @@ import asyncio
 import signal
 import sys
 
-from utils.config import load_config, init_config
+from utils.config import load_config
 from utils.logger import setup_logger
 from utils.delay import init_delay
 from core.engine import Engine
@@ -22,7 +22,6 @@ logger = setup_logger("main")
 class ChatBot:
     def __init__(self, console_mode: bool = False):
         self.config = load_config()
-        self.dot_config = init_config()
         self.engine = Engine(self.config)
         self.platforms = []
         self.learning_scheduler = None
@@ -68,11 +67,16 @@ class ChatBot:
                 logger.error(f"QQ平台启动失败: {e}")
 
         # Telegram 平台
-        tg_config = self.dot_config.get("platforms.telegram", {})
-        if tg_config and tg_config.get("enabled") and tg_config.get("token"):
+        tg_cfg = self.config.platforms.telegram
+        if tg_cfg.enabled and tg_cfg.token:
             try:
                 from platforms.telegram import TelegramPlatform
-                telegram = TelegramPlatform(tg_config)
+                telegram = TelegramPlatform({
+                    "token": tg_cfg.token,
+                    "owner_id": tg_cfg.owner_id,
+                    "allowed_users": tg_cfg.allowed_users,
+                    "group_mode": tg_cfg.group_mode,
+                })
                 telegram.on_message(self.engine.process_message)
                 await telegram.start()
                 self.platforms.append(telegram)
@@ -87,8 +91,7 @@ class ChatBot:
             from web.app import app as web_app, set_engine
             set_engine(self.engine)
 
-            web_port = self.dot_config.get("web.port", 8080)
-            web_config = uvicorn.Config(web_app, host="0.0.0.0", port=web_port, log_level="warning")
+            web_config = uvicorn.Config(web_app, host=self.config.web.host, port=self.config.web.port, log_level="warning")
             web_server = uvicorn.Server(web_config)
             asyncio.create_task(web_server.serve())
             logger.info(f"Web管理面板已启动: http://localhost:{web_port}")

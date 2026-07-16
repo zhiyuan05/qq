@@ -41,6 +41,12 @@ platforms:
     onebot_url: "http://napcat:3001"
     allowed_users: []
     allowed_groups: []
+  telegram:
+    enabled: false
+    token: ""
+    owner_id: ""
+    allowed_users: []
+    group_mode: "mention"
 
 rate_limit:
   enabled: true

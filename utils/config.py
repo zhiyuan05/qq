@@ -62,9 +62,18 @@ class PlatformConfig(BaseModel):
     onebot_url: str = "ws://127.0.0.1:3001"
 
 
+class TelegramPlatformConfig(BaseModel):
+    enabled: bool = False
+    token: str = ""
+    owner_id: str = ""
+    allowed_users: List[str] = Field(default_factory=list)
+    group_mode: str = "mention"
+
+
 class PlatformsConfig(BaseModel):
     wechat: PlatformConfig = PlatformConfig()
     qq: PlatformConfig = PlatformConfig()
+    telegram: TelegramPlatformConfig = TelegramPlatformConfig()
 
 
 class RateLimitConfig(BaseModel):
@@ -93,6 +102,12 @@ class LoggingConfig(BaseModel):
     file: str = "data/logs/chatbot.log"
 
 
+class WebConfig(BaseModel):
+    enabled: bool = True
+    host: str = "0.0.0.0"
+    port: int = 8080
+
+
 class AppConfig(BaseModel):
     bot: BotConfig = BotConfig()
     llm: LLMConfig = LLMConfig()
@@ -102,6 +117,7 @@ class AppConfig(BaseModel):
     security: SecurityConfig = SecurityConfig()
     learning: LearningConfig = LearningConfig()
     logging: LoggingConfig = LoggingConfig()
+    web: WebConfig = WebConfig()
 
 
 def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> AppConfig:
