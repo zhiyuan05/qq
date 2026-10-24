@@ -67,6 +67,7 @@ class PromptBuilder:
         user_id: str = "",
         sticker_tags: Optional[list[str]] = None,
         lore_text: str = "",
+        understanding_hint: str = "",
     ) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
 
@@ -77,6 +78,8 @@ class PromptBuilder:
             system_content += f"\n\n{cues}"
         if lore_text:
             system_content += f"\n\n{lore_text}"
+        if understanding_hint:
+            system_content += f"\n\n{understanding_hint}"
         if sticker_tags:
             system_content += (
                 "\n\n表情包：情绪明显时可以自然配一张，在回复末尾写 [sticker:标签]，"
@@ -119,6 +122,7 @@ class PromptBuilder:
         user_id: str = "",
         sticker_tags: Optional[list[str]] = None,
         lore_text: str = "",
+        understanding_hint: str = "",
     ) -> list[dict]:
         """Assemble a token-bounded prompt from structured history."""
 
@@ -129,6 +133,8 @@ class PromptBuilder:
             system_content += f"\n\n{cues}"
         if lore_text:
             system_content += f"\n\n{lore_text}"
+        if understanding_hint:
+            system_content += f"\n\n{understanding_hint}"
         if sticker_tags:
             system_content += (
                 "\n\n表情包：情绪明显时可以自然配一张，在回复末尾写 [sticker:标签]，"

@@ -41,6 +41,7 @@ from core.admin_direct import AdminDirectAgent
 from core.commands import CommandHandler
 from core.group_manager import GroupManager
 from core.persona_switch import PersonaSwitchAgent
+from core.understanding import ambiguity_hint
 from core.pipeline import Pipeline, PipelineContext
 from core.middleware.rate_limit import RateLimitMiddleware
 from core.middleware.filter import FilterMiddleware
@@ -1319,6 +1320,8 @@ class Engine:
         character = self.character_manager.get(char_name) or self.character_manager.get_default()
         style = self.style_engine.get(style_name) or self.style_engine.get_default()
 
+        understanding = ambiguity_hint(msg.content, has_history=bool(session.messages))
+
         lore_text = ""
         if character.lorebook:
             try:
@@ -1374,6 +1377,7 @@ class Engine:
                 user_id=msg.principal_key,
                 sticker_tags=sticker_tags,
                 lore_text=lore_text,
+                understanding_hint=understanding,
             )
         else:
             history = session.get_context_messages(self.config.memory.short_term.max_messages)
@@ -1386,6 +1390,7 @@ class Engine:
                 memory_results=memory_results,
                 user_id=msg.principal_key,
                 lore_text=lore_text,
+                understanding_hint=understanding,
             )
 
         return session, character, style, is_new_session, messages

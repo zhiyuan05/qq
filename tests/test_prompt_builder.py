@@ -37,6 +37,23 @@ async def test_build_basic_prompt():
 
 
 @pytest.mark.asyncio
+async def test_build_injects_understanding_hint():
+    builder = PromptBuilder()
+    card = CharacterCard({"name": "助手", "system_prompt": "你是{{name}}"})
+    style = Style({"name": "casual", "prompt_modifier": ""})
+
+    messages = await builder.build(
+        card,
+        style,
+        "然后呢",
+        [],
+        understanding_hint="理解提示：结合上下文推断。",
+    )
+
+    assert "理解提示：结合上下文推断。" in messages[0]["content"]
+
+
+@pytest.mark.asyncio
 async def test_build_injects_lore_text():
     builder = PromptBuilder()
     card = CharacterCard({"name": "助手", "system_prompt": "你是{{name}}"})

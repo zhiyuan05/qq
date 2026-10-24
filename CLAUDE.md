@@ -117,7 +117,7 @@ All pipeline stage calls use `Pipeline.run_stage(stage_name, ctx)` (public API, 
 
 ### Prompt assembly (`core/prompt_builder.py`, `core/context_assembler.py`)
 
-`_prepare_chat` builds the prompt through `PromptBuilder`, which combines character/style/memory into a system prompt and delegates history packing to `ContextAssembler` when one is configured (`context.enabled`). `ContextAssembler` never includes the full transcript: it adds context in priority order under `context.max_prompt_tokens` and never trims the fixed system prompt or the newest user message. Token counts come from `llm/token_counter.py`; history image blocks are bounded by `media.history_image_window`. `Engine` accepts `prompt_builder`/`context_assembler` via `**deps`.
+`_prepare_chat` builds the prompt through `PromptBuilder`, which combines character/style/memory into a system prompt and delegates history packing to `ContextAssembler` when one is configured (`context.enabled`). It also receives `lore_text` (selected world-book entries) and `understanding_hint` (from `core/understanding.py`): short/deictic/ellipsis messages get a “use history and ask one clarifying question if still ambiguous” hint, with no extra LLM call. `/card use|show` uses `difflib` to suggest a close card name when the exact name is missing. `ContextAssembler` never includes the full transcript: it adds context in priority order under `context.max_prompt_tokens` and never trims the fixed system prompt or the newest user message. Token counts come from `llm/token_counter.py`; history image blocks are bounded by `media.history_image_window`. `Engine` accepts `prompt_builder`/`context_assembler` via `**deps`.
 
 ### Persistence (`database/`)
 

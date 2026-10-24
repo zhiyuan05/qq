@@ -45,6 +45,14 @@ async def test_engine_card_list(engine):
 
 
 @pytest.mark.asyncio
+async def test_engine_card_command_suggests_close_name(engine):
+    result = await engine.process_message(_make_msg("/card use 青梅竹"))
+
+    assert "角色卡不存在" in result
+    assert "青梅竹马" in result
+
+
+@pytest.mark.asyncio
 async def test_engine_style_list(engine):
     result = await engine.process_message(_make_msg("/style list"))
     assert "风格列表" in result

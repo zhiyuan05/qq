@@ -1,6 +1,7 @@
 from __future__ import annotations
 """命令处理器 - 从 Engine 拆分"""
 import asyncio
+import difflib
 from typing import List
 
 from core.session import Session
@@ -167,7 +168,7 @@ class CommandHandler:
             name = args[0] if args else session.character_card
             card = self.character_manager.get(name)
             if not card:
-                return f"角色卡不存在: {name}"
+                return f"角色卡不存在: {name}{self._card_suggestion(name)}"
             return (f"角色卡: {card.name}\n"
                     f"描述: {card.description}\n"
                     f"技能: {card.skills}\n"
@@ -179,7 +180,7 @@ class CommandHandler:
             if self.character_manager.get(name):
                 session.character_card = name
                 return f"已切换到角色卡: {name}"
-            return f"角色卡不存在: {name}"
+            return f"角色卡不存在: {name}{self._card_suggestion(name)}"
         elif sub == "create" and args:
             if not self.router.is_admin(msg.user_id, msg.platform.value):
                 return "权限不足，仅管理员可创建共享角色卡"
@@ -189,6 +190,10 @@ class CommandHandler:
             self.character_manager.save(name, card)
             return f"已创建角色卡: {name}"
         return "用法: /card list | /card show [名称] | /card use <名称> | /card create <名称>"
+
+    def _card_suggestion(self, name: str) -> str:
+        matches = difflib.get_close_matches(name, self.character_manager.list_cards(), n=1, cutoff=0.6)
+        return f"，你是不是想用「{matches[0]}」？" if matches else ""
 
     def _handle_style(self, session: Session, sub: str, args: List[str]) -> str:
         if sub == "list":
