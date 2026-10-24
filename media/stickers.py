@@ -136,7 +136,8 @@ class StickerLibrary:
                 if not Path(path).is_file():
                     connection.execute("UPDATE stickers SET enabled = 0 WHERE hash = ?", (digest,))
             known = {row[0] for row in connection.execute("SELECT hash FROM stickers")}
-            for path in self.root.rglob("*"):
+            # Sort so identical files resolve to the same sticker on every filesystem.
+            for path in sorted(self.root.rglob("*")):
                 if not path.is_file() or path.suffix.lower() not in _IMAGE_SUFFIXES:
                     continue
                 try:
@@ -279,8 +280,8 @@ class StickerLibrary:
 
     def _pick_blocking(self, tag: str, session_key: str) -> Sticker | None:
         now = time.monotonic()
-        last_session = self._last_session.get(session_key, 0.0)
-        if now - last_session < self.config.cooldown_seconds:
+        last_session = self._last_session.get(session_key)
+        if last_session is not None and now - last_session < self.config.cooldown_seconds:
             return None
         connection = self._connect()
         try:
@@ -304,7 +305,8 @@ class StickerLibrary:
         candidates = [
             row
             for row in candidates
-            if now - self._last_hash.get(row.hash, 0.0) >= self.config.repeat_window_seconds
+            if (last_hash := self._last_hash.get(row.hash)) is None
+            or now - last_hash >= self.config.repeat_window_seconds
         ]
         if not candidates:
             return None

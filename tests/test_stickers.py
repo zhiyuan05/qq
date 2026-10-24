@@ -1,9 +1,11 @@
 import io
 import random
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
 
+import media.stickers as stickers_module
 from media.stickers import StickerLibrary
 from utils.config import StickersConfig
 
@@ -44,7 +46,7 @@ async def test_top_tags_excludes_default_and_caches(tmp_path):
     library = _library(tmp_path)
     library.root.mkdir(parents=True)
     (library.root / "开心.png").write_bytes(_image_bytes())
-    (library.root / "开心猫.png").write_bytes(_image_bytes())
+    (library.root / "开心猫.png").write_bytes(_image_bytes((48, 48)))
     await library.index()
 
     tags = await library.top_tags()
@@ -52,6 +54,19 @@ async def test_top_tags_excludes_default_and_caches(tmp_path):
     assert "开心" in tags
     assert "默认" not in tags
     assert await library.top_tags() == tags
+
+
+@pytest.mark.asyncio
+async def test_first_pick_is_not_blocked_by_system_uptime(tmp_path, monkeypatch):
+    library = _library(tmp_path, cooldown_seconds=60, repeat_window_seconds=600)
+    library.root.mkdir(parents=True)
+    (library.root / "开心.png").write_bytes(_image_bytes())
+    await library.index()
+
+    # A freshly booted host/container has a monotonic clock near zero.
+    monkeypatch.setattr(stickers_module, "time", SimpleNamespace(monotonic=lambda: 5.0))
+
+    assert library._pick_blocking("开心", "qq:1") is not None
 
 
 @pytest.mark.asyncio
