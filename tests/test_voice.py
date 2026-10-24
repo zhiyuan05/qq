@@ -1,14 +1,17 @@
+import base64
 import io
 import sys
 import types
 import wave
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
 from media.voice import VoiceService
-from platforms.models import Platform, ReplyPlan, UnifiedMessage
+from platforms.models import MessageType, Platform, ReplyPlan, UnifiedMessage
 from platforms.qq import QQPlatform
+from platforms.qq_segments import MediaRef
 from tests.test_qq import FakeConnector, FakeWebSocket, qq_config
 from utils.config import MediaConfig, VoiceConfig
 
@@ -139,6 +142,39 @@ async def test_voice_delivery_falls_back_to_text(tmp_path):
     sends = [payload for payload in websocket.sent if payload["action"] == "send_private_msg"]
     assert len(sends) == 1
     assert sends[0]["params"]["message"] == [{"type": "text", "data": {"text": "你好呀"}}]
+
+
+@pytest.mark.asyncio
+async def test_voice_transcription_falls_back_to_path_and_file_id():
+    class FakeVoice:
+        available = True
+
+        async def transcribe_bytes(self, _data):
+            return None, "你好"
+
+        async def transcribe_url(self, _url):
+            return None, ""
+
+    platform = object.__new__(QQPlatform)
+    platform.voice_service = FakeVoice()
+    encoded = "base64://" + base64.b64encode(b"voice").decode()
+    platform._call_action = AsyncMock(
+        side_effect=[{"data": {}}, {"data": {"base64": encoded}}]
+    )
+    ref = MediaRef(
+        kind=MessageType.VOICE,
+        file="voice.amr",
+        path="/napcat/voice.amr",
+        file_id="file-id",
+    )
+
+    attachment, transcript = await platform._transcribe_voice(ref)
+
+    assert attachment is None
+    assert transcript == "你好"
+    assert [
+        call.args[1]["file"] for call in platform._call_action.await_args_list
+    ] == ["voice.amr", "/napcat/voice.amr"]
 
 
 @pytest.mark.asyncio
