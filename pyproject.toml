@@ -27,7 +27,7 @@ dependencies = [
     "aiofiles>=24.0",
     "python-multipart>=0.0.9",
     "wechatpy>=1.8.18,<2.0.0",
-    "cryptography>=42.0",
+    "cryptography>=50.0.2",
     "Pillow>=10.0",
 ]
 
