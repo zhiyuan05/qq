@@ -565,10 +565,22 @@ class CommandHandler:
             msg.platform.value,
         ) or self.group_manager.is_admin(msg.platform.value, msg.group_id, msg.user_id)
         if sub == "info":
+            probability = (
+                f"{group.reply_probability:.0%}"
+                if group.reply_probability is not None
+                else "跟随全局"
+            )
+            cooldown = (
+                f"{group.reply_cooldown_seconds} 秒"
+                if group.reply_cooldown_seconds is not None
+                else "跟随全局"
+            )
             return (f"群配置:\n"
                     f"角色卡: {group.character_card or '默认'}\n"
                     f"风格: {group.style or '默认'}\n"
                     f"仅@回复: {'是' if group.mention_only else '否'}\n"
+                    f"参与概率: {probability}\n"
+                    f"回复冷却: {cooldown}\n"
                     f"管理员: {', '.join(group.admins) or '无'}")
         elif sub == "mention":
             if not can_manage:
@@ -595,7 +607,48 @@ class CommandHandler:
                 self.group_manager.save()
                 return f"群风格已设为: {name}"
             return f"风格不存在: {name}"
-        return "用法: /group info | /group mention on/off | /group character <名称> | /group style <名称>"
+        elif sub == "probability":
+            if not can_manage:
+                return "权限不足"
+            if not args:
+                return "用法: /group probability 0-1（reset 恢复全局）"
+            value = args[0].strip().lower()
+            if value in ("reset", "default", "默认"):
+                group.reply_probability = None
+                self.group_manager.save()
+                return "群参与概率已恢复为跟随全局"
+            try:
+                probability = float(value)
+            except ValueError:
+                return "概率必须是 0 到 1 之间的数字"
+            if not 0 <= probability <= 1:
+                return "概率必须是 0 到 1 之间的数字"
+            group.reply_probability = probability
+            self.group_manager.save()
+            return f"群参与概率已设为: {probability:.0%}"
+        elif sub == "cooldown":
+            if not can_manage:
+                return "权限不足"
+            if not args:
+                return "用法: /group cooldown 0-3600（秒，reset 恢复全局）"
+            value = args[0].strip().lower()
+            if value in ("reset", "default", "默认"):
+                group.reply_cooldown_seconds = None
+                self.group_manager.save()
+                return "群回复冷却已恢复为跟随全局"
+            try:
+                seconds = int(value)
+            except ValueError:
+                return "冷却必须是 0 到 3600 之间的整数秒"
+            if not 0 <= seconds <= 3600:
+                return "冷却必须是 0 到 3600 之间的整数秒"
+            group.reply_cooldown_seconds = seconds
+            self.group_manager.save()
+            return f"群回复冷却已设为: {seconds} 秒"
+        return (
+            "用法: /group info | /group mention on/off | /group character <名称> | "
+            "/group style <名称> | /group probability 0-1 | /group cooldown <秒>"
+        )
 
     async def _handle_search(self, args: List[str]) -> str:
         if not args:

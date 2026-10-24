@@ -24,6 +24,8 @@ class GroupConfig:
     admins: List[str] = field(default_factory=list)
     enabled: bool = True
     mention_only: bool = False  # True=只在被@时回复
+    reply_probability: Optional[float] = None  # None=使用全局 humanize 配置
+    reply_cooldown_seconds: Optional[int] = None
     welcome_message: str = ""
 
 
@@ -61,6 +63,16 @@ class GroupManager:
                     admins=[str(item) for item in row.get("admins") or []],
                     enabled=bool(row.get("enabled", True)),
                     mention_only=bool(row.get("mention_only", False)),
+                    reply_probability=(
+                        float(row["reply_probability"])
+                        if row.get("reply_probability") is not None
+                        else None
+                    ),
+                    reply_cooldown_seconds=(
+                        int(row["reply_cooldown_seconds"])
+                        if row.get("reply_cooldown_seconds") is not None
+                        else None
+                    ),
                     welcome_message=str(row.get("welcome_message", "")),
                 )
             except (TypeError, ValueError):
@@ -147,6 +159,11 @@ class GroupManager:
             return True
         if bot_name and bot_name in (text or ""):
             return True  # being called by name counts as a direct address
+
+        if group is not None and group.reply_probability is not None:
+            reply_probability = group.reply_probability
+        if group is not None and group.reply_cooldown_seconds is not None:
+            cooldown_seconds = group.reply_cooldown_seconds
 
         key = self._key(platform, group_id)
         moment = time.monotonic() if now is None else now

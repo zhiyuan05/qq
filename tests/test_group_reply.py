@@ -84,6 +84,25 @@ def test_decision_is_stable_for_the_same_message(tmp_path):
     assert first == second
 
 
+def test_per_group_probability_and_cooldown_override_globals(tmp_path):
+    manager = _manager(tmp_path)
+    group = manager.get_or_create("qq", "g1")
+    group.reply_probability = 0.0
+    group.reply_cooldown_seconds = 0
+
+    assert not manager.should_join(
+        "qq", "g1", "u1", "随便聊聊",
+        is_mentioned=False, reply_probability=1.0, cooldown_seconds=3600,
+    )
+
+    group.reply_probability = 1.0
+    manager.mark_replied("qq", "g1", now=100.0)
+    assert manager.should_join(
+        "qq", "g1", "u1", "随便聊聊",
+        is_mentioned=False, reply_probability=0.0, cooldown_seconds=3600, now=101.0,
+    )
+
+
 def test_bot_name_in_text_raises_the_odds(tmp_path):
     manager = _manager(tmp_path)
 

@@ -137,6 +137,25 @@ async def test_engine_admin_direct_confirmation_is_forwarded(engine):
 
 
 @pytest.mark.asyncio
+async def test_engine_group_probability_command(engine):
+    engine.router.admin_users = ["qq:owner"]
+    message = UnifiedMessage(
+        platform=Platform.QQ,
+        user_id="owner",
+        group_id="g1",
+        content="/group probability 0.4",
+        message_id="group-probability-1",
+    )
+
+    result = await engine.process_message(message)
+
+    assert "40%" in result
+    group = engine.group_manager.get("qq", "g1")
+    assert group is not None
+    assert group.reply_probability == pytest.approx(0.4)
+
+
+@pytest.mark.asyncio
 async def test_engine_group_info_no_group(engine):
     """非群聊环境使用 /group 应提示"""
     result = await engine.process_message(_make_msg("/group info"))
