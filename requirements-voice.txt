@@ -1,0 +1,5 @@
+# Optional voice stack. SILK voice messages are converted by NapCat's
+# get_record(out_format=wav), so no pilk/codec build is needed here.
+faster-whisper==1.2.1
+av==13.1.0
+edge-tts>=6.1.0

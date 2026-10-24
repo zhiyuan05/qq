@@ -1,6 +1,10 @@
 from __future__ import annotations
 """群聊管理"""
-from dataclasses import dataclass, field
+import json
+import os
+import threading
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from utils.logger import setup_logger
@@ -22,11 +26,59 @@ class GroupConfig:
 
 
 class GroupManager:
-    def __init__(self):
+    def __init__(self, storage_path: str | None = None):
         self._groups: Dict[str, GroupConfig] = {}
+        self._storage = Path(storage_path) if storage_path else None
+        self._lock = threading.Lock()
+        self._load()
 
     def _key(self, platform: str, group_id: str) -> str:
         return f"{platform}:{group_id}"
+
+    def _load(self) -> None:
+        if self._storage is None or not self._storage.is_file():
+            return
+        try:
+            rows = json.loads(self._storage.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            logger.warning("群配置读取失败 (%s)", type(exc).__name__)
+            return
+        if not isinstance(rows, list):
+            return
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("group_id") or not row.get("platform"):
+                continue
+            try:
+                config = GroupConfig(
+                    group_id=str(row["group_id"]),
+                    platform=str(row["platform"]),
+                    name=str(row.get("name", "")),
+                    character_card=row.get("character_card") or None,
+                    style=row.get("style") or None,
+                    admins=[str(item) for item in row.get("admins") or []],
+                    enabled=bool(row.get("enabled", True)),
+                    mention_only=bool(row.get("mention_only", False)),
+                    welcome_message=str(row.get("welcome_message", "")),
+                )
+            except (TypeError, ValueError):
+                continue
+            self._groups[self._key(config.platform, config.group_id)] = config
+
+    def save(self) -> None:
+        if self._storage is None:
+            return
+        with self._lock:
+            rows = [asdict(group) for group in self._groups.values()]
+            try:
+                self._storage.parent.mkdir(parents=True, exist_ok=True)
+                temporary = self._storage.with_suffix(self._storage.suffix + ".tmp")
+                temporary.write_text(
+                    json.dumps(rows, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                os.replace(temporary, self._storage)
+            except OSError as exc:
+                logger.warning("群配置保存失败 (%s)", type(exc).__name__)
 
     def get_or_create(self, platform: str, group_id: str) -> GroupConfig:
         key = self._key(platform, group_id)
@@ -65,8 +117,10 @@ class GroupManager:
         group = self.get_or_create(platform, group_id)
         if user_id not in group.admins:
             group.admins.append(user_id)
+            self.save()
 
     def remove_admin(self, platform: str, group_id: str, user_id: str):
         group = self.get(platform, group_id)
         if group and user_id in group.admins:
             group.admins.remove(user_id)
+            self.save()

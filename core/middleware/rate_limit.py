@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Rate limit middleware."""
 from core.pipeline import Middleware, PipelineContext
 from security.rate_limiter import RateLimiter

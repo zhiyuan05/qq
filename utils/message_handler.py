@@ -1,4 +1,6 @@
 """消息类型处理 - 图片/语音/文件"""
+from __future__ import annotations
+
 from typing import Optional
 
 from platforms.models import UnifiedMessage, MessageType
@@ -9,6 +11,7 @@ logger = setup_logger("msg_handler")
 
 class MessageHandler:
     """处理不同类型的消息"""
+
 
     @staticmethod
     def extract_text(msg: UnifiedMessage) -> str:

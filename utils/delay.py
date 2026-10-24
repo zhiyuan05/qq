@@ -1,4 +1,6 @@
 """随机延迟 - 模拟人类回复节奏"""
+from __future__ import annotations
+
 import asyncio
 import random
 from typing import Optional
@@ -10,6 +12,7 @@ logger = setup_logger("delay")
 
 class HumanDelay:
     """模拟人类打字和回复延迟"""
+
 
     def __init__(self, min_seconds: float = 0.5, max_seconds: float = 3.0,
                  chars_per_second: float = 15.0, enabled: bool = True):

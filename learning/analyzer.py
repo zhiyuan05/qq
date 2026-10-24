@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """学习分析器"""
 from typing import Dict, List
 

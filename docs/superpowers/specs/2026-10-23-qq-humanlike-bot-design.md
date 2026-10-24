@@ -629,3 +629,18 @@ ALTER TABLE chat_sessions ADD COLUMN summary_until_id INTEGER NOT NULL DEFAULT 0
 - 不把 mem0、Letta、SillyTavern 等运行时作为依赖引入；2 核 4G 单机优先使用 SQLite + 现有 LLM 客户端。
 - 新增 Python 依赖只保留语音和图片处理必需的库，见第 13 节。
 - 所有参考项目的行为只作为设计输入，最终实现以本 spec 的接口和数据模型为准。
+
+## 19. 实现增补（2026-10-23，合并 qq-bridge 机制）
+
+实现时发现以下假设需要修正，代码以本节为准：
+
+1. **入站段解析**：`platforms/qq.py` 原先直接返回 `raw_message`，图片/语音/引用都是 CQ 码文本。现由 `platforms/qq_segments.py` 同时解析 OneBot 数组和 CQ 字符串；`content` 是逻辑文本，`model_content` 是模型视角（含 `[引用 人：原文]`、媒体占位符）。
+2. **追加型归档**：`conversations` 每次保存都会删除重插，id 不稳定。新增 `conversation_archive`（迁移 005），摘要与人格游标只认它的自增 id。
+3. **PostgreSQL**：不执行 `.sql` 迁移文件；所有新表/列必须同时写入 `database/models.py`，新列还需在 `database/db.py` 的 `_run_postgresql_migrations` 中补 `ADD COLUMN IF NOT EXISTS`。
+4. **语音可选**：镜像固定 Python 3.12，`faster-whisper`/`edge-tts` 通过 `INSTALL_VOICE=true` 构建；`voice.enabled` 默认 false。SILK 解码优先 `pilk`，不可用时回退 ffmpeg，再失败则文本占位。
+5. **NapCat 媒体可见性**：`./data/media` 以相同绝对路径 `/app/data/media` 挂入 NapCat，否则 `file://` 图片/语音发送失败。
+6. **图片限额**：下载 8 MB / 64 MP / 单条 5 张；送模型 ≤1 MB、最长边 1280 px；GIF 取首帧。
+7. **全局人格候选制**：全局特质即使达到置信度与跨会话门槛，也必须管理员 `/persona approve` 后才生效；用户特质按阈值自动生效。
+8. **投递接缝**：`Engine.process_message()` 与流式路径保持返回字符串；平台入口改用 `process_message_plan()`，返回 `ReplyPlan`。群聊与非拟人化计划回退到 `send_long_message`。
+9. **出站安全**：新增 `security/outbound_guard.py`（本机路径/凭据/已知密钥拦截）与 `platforms/delivery.py`（8/分钟、60/小时配额，发送成功才计语音配额）。
+10. **Token 账本**：迁移 007；`llm/usage.py` 按 cache miss/hit/write/output 记录，事件键幂等，`/api/v1/usage` 聚合。

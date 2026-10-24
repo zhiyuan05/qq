@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Sensitive content filtering with configurable word list."""
 import time
 from pathlib import Path
@@ -40,11 +42,11 @@ class ContentFilter:
         if found:
             self._filter_log.append({
                 "time": time.time(),
-                "words_found": found,
-                "original": text,
-                "filtered": result,
+                "word_count": len(found),
             })
-            logger.info(f"内容过滤: 发现敏感词 {found}")
+            if len(self._filter_log) > 1000:
+                del self._filter_log[:-1000]
+            logger.info(f"内容过滤: 替换了 {len(found)} 个敏感词")
 
         return result
 

@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: ${CHATBOT_POSTGRES_PASSWORD:?set CHATBOT_POSTGRES_PASSWORD in .env}
+    volumes:
+      - chatbot-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - chatbot-net
+
+  chatbot:
+    environment:
+      CHATBOT_DATABASE_URL: postgresql+asyncpg://chatbot:${CHATBOT_POSTGRES_PASSWORD}@postgres:5432/chatbot
+      CHATBOT_MULTI_INSTANCE: "true"
+    depends_on:
+      napcat:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+volumes:
+  chatbot-postgres:

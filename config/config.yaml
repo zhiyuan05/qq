@@ -1,68 +1,136 @@
+# 备用配置入口。字段结构与根目录 config.yaml 保持一致。
+bot:
+  name: "AI助手"
+  default_character: "default"
+  default_style: "casual"
+  command_prefix: "/"
+
+llm:
+  provider: "deepseek"
+  model: "deepseek-chat"
+  fallback_model: "deepseek-reasoner"
+  vision_model: "deepseek-flash"
+  vision_fallback_model: "deepseek-chat"
+  max_tokens: 4096
+  temperature: 0.7
+  timeout: 60
+  max_retries: 3
+  provider_failure_threshold: 2
+  provider_cooldown_seconds: 30
+  daily_token_limit: 500000
+  stream: true
+
+memory:
+  short_term:
+    max_messages: 50
+    summarize_after: 30
+  long_term:
+    enabled: true
+    vector_db: "chroma"
+    path: "data/chroma"
+    top_k: 5
+    cleanup_interval_seconds: 3600
+    low_access_days: 30
+    archive_after_days: 60
+  entity:
+    enabled: true
+    auto_extract: true
+    extract_interval: 3
+    max_profile_chars: 1000
+    inject_top_k: 6
+
+persistence:
+  enabled: true
+  database_url: ""
+  db_path: "data/chatbot.db"
+  restore_limit: 200
+  messages_per_session: 20
+  archive_retention_days: 180
+  archive_max_rows: 200000
+  multi_instance: false
+  lock_timeout: 30
+  pool_size: 5
+  max_overflow: 10
+  pool_timeout: 30
+
 platforms:
   qq:
     enabled: true
     onebot_url: "ws://127.0.0.1:3001"
+    access_token: ""
+    allowed_users: []
+    allowed_groups: []
+    connect_timeout: 10
+    api_timeout: 15
+    reconnect_min_seconds: 1
+    reconnect_max_seconds: 30
+    event_queue_size: 1000
+    event_concurrency: 2
+    dedup_cache_size: 2048
     max_msg_length: 2000
+    shutdown_drain_timeout: 15
+    shutdown_cancel_timeout: 2
+    shutdown_close_timeout: 5
   telegram:
     enabled: false
     token: ""
     owner_id: ""
     allowed_users: []
+    allowed_groups: []
     group_mode: "mention"
-
-llm:
-  primary:
-    provider: "deepseek"
-    api_key: ""
-    model: "deepseek-chat"
-    max_tokens: 2048
-    temperature: 0.7
-  backup:
-    provider: "openai_compatible"
-    api_key: ""
-    base_url: ""
-    model: ""
-  ollama:
+    poll_timeout: 30
+    timeout: 40
+    retry_min_seconds: 1
+    retry_max_seconds: 30
+    dedup_cache_size: 2048
+    max_msg_length: 4096
+    shutdown_drain_timeout: 15
+    shutdown_cancel_timeout: 2
+    shutdown_close_timeout: 5
+  # 官方微信公众号（不是个人微信，也不是企业微信）
+  wechat:
     enabled: false
-    model: "qwen2.5:7b"
-  budget:
-    daily_token_limit: 500000
-    warn_at_percent: 80
+    token: ""
+    app_id: ""
+    app_secret: ""
+    encoding_aes_key: ""
+    message_mode: "plaintext"
+    allowed_users: []
+    event_queue_size: 512
+    timeout: 10
+    timestamp_tolerance_seconds: 300
+    max_body_bytes: 65536
+    max_msg_bytes: 2000
+    delivery_retries: 2
+    retry_min_seconds: 0.5
+    retry_max_seconds: 5
+    dedup_cache_size: 4096
+    shutdown_drain_timeout: 15
+    shutdown_cancel_timeout: 2
+    shutdown_close_timeout: 5
+
+rate_limit:
+  enabled: false
+  max_per_minute: 20
+  max_per_hour: 200
+  max_per_group_minute: 60
+  daily_message_cap: 500
+  max_conversation_depth: 0
 
 security:
-  rate_limit:
-    per_user_per_minute: 10
-    per_group_per_minute: 20
-    global_per_hour: 200
-    cooldown_minutes: 5
-  conversation:
-    max_depth: 20
-    cooldown_after_depth: 10
-  daily_message_cap: 500
+  admin_users: []
+  content_filter: false
+  max_message_length: 5000
   active_hours:
-    start: "08:00"
-    end: "23:00"
-    timezone: "Asia/Shanghai"
-  sensitive_words_file: "config/sensitive_words.txt"
-  circuit_breaker:
-    failure_threshold: 0.3
-    window_seconds: 300
-    recovery_seconds: 600
+    enabled: true
+    start_hour: 8
+    end_hour: 23
 
-memory:
-  short_term:
-    max_messages: 50
-    summarize_after: 20
-  long_term:
-    relevance_threshold: 0.7
-    max_retrieval: 5
-    archive_after_days: 60
-  entity:
-    cleanup_after_days: 30
-
-characters:
-  default: "default"
-  dir: "characters/"
+delay:
+  enabled: false
+  min_seconds: 0.5
+  max_seconds: 3.0
+  chars_per_second: 15.0
 
 web:
   enabled: true
@@ -70,8 +138,126 @@ web:
   port: 8080
   auth_token: ""
 
+plugins:
+  web_search:
+    enabled: true
+    max_results: 3
+
+learning:
+  enabled: true
+  trigger_interval: 30
+  trigger_schedule: "03:00"
+  max_history_for_learning: 200
+  auto_apply: true
+  backup_before_learn: true
+
+media:
+  enabled: true
+  storage_dir: "data/media"
+  outbound_dir: "data/media/outbound"
+  retention_days: 7
+  max_fetch_bytes: 8388608
+  max_image_pixels: 64000000
+  vision_max_side: 1280
+  vision_max_bytes: 1048576
+  max_images_per_message: 5
+  group_images: true
+  history_image_window: 2
+  link_preview: true
+  link_preview_max_links: 2
+  link_preview_max_chars: 1800
+  max_video_bytes: 31457280
+  video_frames: 6
+  video_max_seconds: 180
+
+stickers:
+  enabled: true
+  library_dir: "characters/stickers"
+  auto_collect: true
+  review_required: false
+  tag_on_startup: true
+  auto_tag: true
+  tag_batch_size: 5
+  tag_interval_seconds: 180
+  max_bytes: 2097152
+  max_per_day: 50
+  max_total_bytes: 524288000
+
+humanize:
+  enabled: true
+  max_bubbles: 3
+  max_bubble_chars: 500
+  split_threshold: 60
+  typing_chars_per_second: 15.0
+  min_delay: 0.3
+  max_delay: 1.5
+  quote_probability: 0.5
+  polish: true
+
+voice:
+  enabled: false
+  asr_provider: "faster_whisper"
+  tts_provider: "edge_tts"
+  asr_model: "base"
+  max_audio_seconds: 60
+  tts_voice: "zh-CN-XiaoxiaoNeural"
+  tts_dir: "data/media/tts"
+  voice_probability: 0.15
+  voice_max_chars: 80
+  per_minute: 2
+  per_hour: 10
+
+delivery:
+  audit_enabled: true
+  outbound_per_minute: 8
+  outbound_per_hour: 60
+  failure_stop_threshold: 2
+
+context:
+  enabled: true
+  max_prompt_tokens: 8000
+  recent_messages: 20
+  summary_tokens: 400
+  user_trait_tokens: 150
+  global_trait_tokens: 150
+  memory_top_k: 3
+
+persona:
+  enabled: true
+  evolve_after_messages: 20
+  evolve_schedule: "04:00"
+  max_traits_per_update: 3
+  min_global_confidence: 0.75
+  min_user_confidence: 0.6
+  auto_approve_global: true
+  max_global_active: 12
+  max_user_active: 8
+  max_global_core: 3
+  max_user_core: 2
+  core_confidence: 0.85
+  decay_per_week: 0.05
+  profile_max_chars: 2000
+
+usage:
+  enabled: true
+  currency: "CNY"
+  daily_budget_micros: 0
+  peak_multiplier: 2.0
+  offpeak_multiplier: 1.0
+  peak_windows: "09:00-12:00,14:00-18:00"
+  peak_weekdays_only: true
+  price_cache_miss_per_million: 0.0
+  price_cache_hit_per_million: 0.0
+  price_cache_write_per_million: 0.0
+  price_output_per_million: 0.0
+
 logging:
   level: "INFO"
-  file: "logs/chatbot.log"
-  max_size_mb: 50
-  backup_count: 5
+  file: "data/logs/chatbot.log"
+
+admin_agent:
+  enabled: false
+  trigger_prefix: "#"
+  executor_socket: "data/admin.sock"
+  executor_token: ""
+  confirmation_ttl_seconds: 120

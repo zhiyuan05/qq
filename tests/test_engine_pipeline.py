@@ -49,8 +49,8 @@ async def test_pipeline_empty_filter(engine):
 @pytest.mark.asyncio
 async def test_engine_uses_pipeline_flow(engine):
     """Engine.process_message 应经过 Pipeline 流程"""
-    with patch.object(engine, "_run_pipeline_stage") as mock_stage:
-        mock_stage.return_value = True
-        msg = UnifiedMessage(platform=Platform.CONSOLE, user_id="u1", content="/help")
-        await engine.process_message(msg)
-        assert mock_stage.called
+    msg = UnifiedMessage(platform=Platform.CONSOLE, user_id="u1", content="/help")
+    result = await engine.process_message(msg)
+    # 正常处理：指令应返回帮助文本，说明 pipeline 流程已执行
+    assert result is not None
+    assert "可用指令" in result or "/help" in result

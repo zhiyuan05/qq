@@ -1,14 +1,21 @@
-from __future__ import annotations
 """Three-tier rate limiter: per-user, per-group, global + daily cap + URL limit + depth control."""
+from __future__ import annotations
+
 import time
-from collections import defaultdict
-from typing import Optional, Tuple
+from collections import defaultdict, deque
+from typing import Optional
+
 from utils.logger import setup_logger
 
 logger = setup_logger("rate_limiter")
 
 
 class RateLimiter:
+    """滑动窗口限流器，使用 deque 实现 O(1) 的过期清理。
+
+    三层限流 + 每日上限 + 对话深度控制 + URL 频率限制。
+    """
+
     def __init__(
         self,
         per_user_per_minute: int = 10,
@@ -29,16 +36,17 @@ class RateLimiter:
         self.max_conversation_depth = max_conversation_depth
         self.depth_idle_reset = depth_idle_reset_seconds
 
-        self._user_timestamps: dict[str, list[float]] = defaultdict(list)
-        self._group_timestamps: dict[str, list[float]] = defaultdict(list)
-        self._global_timestamps: list[float] = []
+        # deque 替代 list — O(1) 左侧弹出
+        self._user_timestamps: dict[str, deque[float]] = defaultdict(deque)
+        self._group_timestamps: dict[str, deque[float]] = defaultdict(deque)
+        self._global_timestamps: deque[float] = deque()
         self._daily_count: int = 0
         self._daily_reset_time: float = time.time()
-        self._url_timestamps: list[float] = []
+        self._url_timestamps: deque[float] = deque()
         self._depth_counts: dict[str, int] = defaultdict(int)
         self._depth_timestamps: dict[str, float] = defaultdict(float)
 
-    def check(self, user_id: str, group_id: Optional[str] = None) -> Tuple[bool, str]:
+    def check(self, user_id: str, group_id: Optional[str] = None) -> tuple[bool, str]:
         now = time.time()
 
         self._maybe_reset_daily(now)
@@ -66,11 +74,13 @@ class RateLimiter:
 
         return True, ""
 
-    def check_depth(self, user_id: str) -> Tuple[bool, str]:
+    def check_depth(self, user_id: str) -> tuple[bool, str]:
         now = time.time()
         if now - self._depth_timestamps[user_id] > self.depth_idle_reset:
             self._depth_counts[user_id] = 0
 
+        if self.max_conversation_depth <= 0:
+            return True, ""
         if self._depth_counts[user_id] >= self.max_conversation_depth:
             return False, f"对话深度超限({self.max_conversation_depth})，请稍后再聊"
         return True, ""
@@ -82,7 +92,7 @@ class RateLimiter:
     def reset_depth(self, user_id: str):
         self._depth_counts[user_id] = 0
 
-    def check_url_limit(self) -> Tuple[bool, str]:
+    def check_url_limit(self) -> tuple[bool, str]:
         now = time.time()
         self._clean_old(self._url_timestamps, now, 3600)
         if len(self._url_timestamps) >= self.url_per_hour:
@@ -105,10 +115,12 @@ class RateLimiter:
             "url_count": len(self._url_timestamps),
         }
 
-    def _clean_old(self, timestamps: list, now: float, window: int):
+    @staticmethod
+    def _clean_old(timestamps: deque, now: float, window: int) -> None:
+        """移除窗口外的时间戳 — O(1) 左侧弹出。"""
         cutoff = now - window
         while timestamps and timestamps[0] < cutoff:
-            timestamps.pop(0)
+            timestamps.popleft()
 
     def _maybe_reset_daily(self, now: float):
         if now - self._daily_reset_time > 86400:

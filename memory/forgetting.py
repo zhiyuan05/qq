@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Memory forgetting mechanism: archive old, deprioritize low-access memories."""
 import time
 from utils.logger import setup_logger
@@ -17,7 +19,9 @@ class MemoryForgetting:
         self.archive_seconds = archive_after_days * 86400
 
     def should_archive(self, memory: dict) -> bool:
-        last_access = memory.get("last_access", 0)
+        last_access = memory.get("last_access")
+        if last_access is None:
+            return False
         access_count = memory.get("access_count", 0)
         age = time.time() - last_access
 
@@ -26,7 +30,9 @@ class MemoryForgetting:
         return False
 
     def is_low_priority(self, memory: dict) -> bool:
-        last_access = memory.get("last_access", 0)
+        last_access = memory.get("last_access")
+        if last_access is None:
+            return False
         access_count = memory.get("access_count", 0)
         age = time.time() - last_access
 

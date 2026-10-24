@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 """角色卡演化管理"""
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 import yaml
 
@@ -73,7 +75,9 @@ class EvolutionManager:
         for f in sorted(self.learning_dir.glob(f"report_{card_name}_*.yaml")):
             try:
                 with open(f, "r", encoding="utf-8") as fp:
-                    reports.append(yaml.safe_load(fp))
+                    report = yaml.safe_load(fp)
+                    if isinstance(report, dict):
+                        reports.append(report)
             except Exception:
                 continue
         return reports

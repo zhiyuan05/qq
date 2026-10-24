@@ -1,5 +1,9 @@
 from __future__ import annotations
-"""角色卡管理器"""
+
+"""角色卡管理器：Markdown 人格卡为主，兼容旧 YAML 卡。"""
+import os
+import re
+import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -8,6 +12,18 @@ import yaml
 from utils.logger import setup_logger
 
 logger = setup_logger("characters")
+
+_SAFE_CARD_NAME = re.compile(r"^[\w\-一-鿿 ]{1,64}$", re.UNICODE)
+_FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
+
+
+def validate_card_name(name: str) -> str:
+    """验证用于磁盘文件名的角色卡标识，阻止路径穿越和控制字符。"""
+
+    normalized = name.strip()
+    if not _SAFE_CARD_NAME.fullmatch(normalized) or normalized in {".", ".."}:
+        raise ValueError("角色卡名称仅可包含中文、字母、数字、空格、下划线和连字符，且不超过 64 字")
+    return normalized
 
 
 class CharacterCard:
@@ -23,11 +39,14 @@ class CharacterCard:
         self.learned_traits: dict = data.get("learned_traits", {})
 
     def get_system_prompt(self) -> str:
-        rules_text = "\n".join(f"- {r}" for r in self.rules)
+        rules_text = "\n".join(f"- {rule}" for rule in self.rules)
         prompt = self.system_prompt.replace("{{name}}", self.name)
         prompt = prompt.replace("{{description}}", self.description)
         prompt = prompt.replace("{{skills}}", self.skills)
+        has_rules_slot = "{{rules}}" in self.system_prompt
         prompt = prompt.replace("{{rules}}", rules_text)
+        if self.rules and not has_rules_slot:
+            prompt += f"\n\n规则:\n{rules_text}"
 
         if self.learned_traits:
             prompt += "\n\n根据以往交流经验:\n"
@@ -36,7 +55,7 @@ class CharacterCard:
                     for trait in traits:
                         prompt += f"- {trait}\n"
 
-        return prompt
+        return prompt.strip()
 
     def to_dict(self) -> dict:
         return {
@@ -51,26 +70,80 @@ class CharacterCard:
             "learned_traits": self.learned_traits,
         }
 
+    def to_front_matter(self) -> dict:
+        meta = {
+            "name": self.name,
+            "description": self.description,
+            "greeting": self.greeting,
+            "rules": self.rules,
+            "personality": self.personality,
+            "examples": self.examples,
+        }
+        if self.skills:
+            meta["skills"] = self.skills
+        if self.learned_traits:
+            meta["learned_traits"] = self.learned_traits
+        return meta
+
+    def to_markdown(self) -> str:
+        meta = yaml.safe_dump(
+            self.to_front_matter(),
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        body = self.system_prompt.strip()
+        if not body:
+            body = f"你是{self.name}。{self.description}".strip()
+        return f"---\n{meta}---\n\n{body}\n"
+
 
 class CharacterManager:
-    def __init__(self, cards_dir: str = "characters/cards"):
+    def __init__(self, cards_dir: str = "characters/cards", roles_dir: str = "characters/roles"):
         self.cards_dir = Path(cards_dir)
+        self.roles_dir = Path(roles_dir)
         self._cards: Dict[str, CharacterCard] = {}
         self._load_all()
 
+    def _load_markdown(self, path: Path) -> CharacterCard:
+        text = path.read_text(encoding="utf-8")
+        match = _FRONT_MATTER.match(text)
+        if match:
+            meta = yaml.safe_load(match.group(1)) or {}
+            body = match.group(2).strip()
+        else:
+            meta = {}
+            body = text.strip()
+        if not isinstance(meta, dict):
+            raise ValueError("front matter 必须是 YAML 对象")
+        meta.setdefault("name", path.stem)
+        meta["system_prompt"] = body
+        return CharacterCard(meta)
+
     def _load_all(self):
-        if not self.cards_dir.exists():
-            return
-        for f in self.cards_dir.glob("*.yaml"):
-            try:
-                with open(f, "r", encoding="utf-8") as fp:
-                    data = yaml.safe_load(fp)
-                if data:
-                    card = CharacterCard(data)
-                    self._cards[f.stem] = card
-                    logger.info(f"加载角色卡: {card.name}")
-            except Exception as e:
-                logger.error(f"加载角色卡失败 {f}: {e}")
+        if self.roles_dir.exists():
+            for path in sorted(self.roles_dir.glob("*.md")):
+                try:
+                    card = self._load_markdown(path)
+                    self._cards[path.stem] = card
+                    logger.info(f"加载 Markdown 人格卡: {card.name}")
+                except Exception as exc:
+                    logger.error(f"加载 Markdown 人格卡失败 {path}: {exc}")
+
+        # Legacy YAML cards remain readable; a same-named .md card wins.
+        if self.cards_dir.exists():
+            for path in sorted(self.cards_dir.glob("*.yaml")):
+                if path.stem in self._cards:
+                    continue
+                try:
+                    with open(path, "r", encoding="utf-8") as handle:
+                        data = yaml.safe_load(handle)
+                    if data:
+                        card = CharacterCard(data)
+                        self._cards[path.stem] = card
+                        logger.info(f"加载旧版角色卡: {card.name}")
+                except Exception as exc:
+                    logger.error(f"加载角色卡失败 {path}: {exc}")
 
     def get(self, name: str) -> Optional[CharacterCard]:
         return self._cards.get(name)
@@ -86,11 +159,65 @@ class CharacterManager:
         return list(self._cards.keys())
 
     def save(self, name: str, card: CharacterCard):
+        name = validate_card_name(name)
+        card.name = card.name or name
         self._cards[name] = card
-        self.cards_dir.mkdir(parents=True, exist_ok=True)
-        path = self.cards_dir / f"{name}.yaml"
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(card.to_dict(), f, allow_unicode=True, default_flow_style=False)
+        self.roles_dir.mkdir(parents=True, exist_ok=True)
+        path = self.roles_dir / f"{name}.md"
+        temporary = self.roles_dir / f".{name}.{uuid.uuid4().hex}.tmp"
+        try:
+            temporary.write_text(card.to_markdown(), encoding="utf-8")
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def backup_card(self, name: str) -> str:
+        """Copy the current Markdown/YAML card into roles/.backups before mutation."""
+
+        candidates = [self.roles_dir / f"{name}.md", self.cards_dir / f"{name}.yaml"]
+        existing = next((path for path in candidates if path.is_file()), None)
+        if existing is None:
+            return ""
+        backup_dir = self.roles_dir / ".backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = __import__("datetime").datetime.now().strftime("%Y%m%d%H%M%S")
+        target = backup_dir / f"{name}.{stamp}{existing.suffix}"
+        target.write_bytes(existing.read_bytes())
+        return str(target)
+
+    def delete(self, name: str) -> bool:
+        name = validate_card_name(name)
+        self.backup_card(name)
+        removed = False
+        for path in (self.roles_dir / f"{name}.md", self.cards_dir / f"{name}.yaml"):
+            if path.is_file():
+                path.unlink()
+                removed = True
+        self._cards.pop(name, None)
+        return removed
+
+    def migrate_legacy_cards(self) -> int:
+        """Convert YAML cards without a Markdown counterpart; never overwrites .md."""
+
+        migrated = 0
+        if not self.cards_dir.exists():
+            return migrated
+        for path in sorted(self.cards_dir.glob("*.yaml")):
+            target = self.roles_dir / f"{path.stem}.md"
+            if target.exists():
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    data = yaml.safe_load(handle)
+                if not data:
+                    continue
+                self.save(path.stem, CharacterCard(data))
+                migrated += 1
+            except Exception as exc:
+                logger.error(f"迁移角色卡失败 {path}: {exc}")
+        if migrated:
+            logger.info("已迁移 %d 张旧版角色卡到 Markdown", migrated)
+        return migrated
 
     def update_learned_traits(self, name: str, traits: dict):
         card = self._cards.get(name)

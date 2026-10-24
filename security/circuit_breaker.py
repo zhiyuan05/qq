@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Circuit breaker: CLOSED -> OPEN -> HALF_OPEN with configurable thresholds."""
 import time
 from enum import Enum

@@ -1,5 +1,7 @@
 """插件基类"""
-from abc import ABC, abstractmethod
+from __future__ import annotations
+
+from abc import ABC
 from typing import Callable, Dict, Optional
 
 from platforms.models import UnifiedMessage
@@ -15,6 +17,7 @@ class BasePlugin(ABC):
 
     async def on_message(self, message: UnifiedMessage) -> Optional[UnifiedMessage]:
         """消息预处理，返回None继续处理，返回修改后的消息替换原消息"""
+
         return None
 
     async def on_response(self, response: str, message: UnifiedMessage) -> Optional[str]:

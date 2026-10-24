@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Alert manager with level-based filtering and callback support."""
 import time
 import asyncio
@@ -46,11 +48,17 @@ class AlertManager:
 
         for cb in self._callbacks:
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(cb(alert))
-                else:
+                loop = asyncio.get_running_loop()
+                asyncio.run_coroutine_threadsafe(cb(alert), loop)
+            except RuntimeError:
+                # 没有运行中的循环
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
                     loop.run_until_complete(cb(alert))
+                    loop.close()
+                except Exception as e2:
+                    logger.error(f"告警回调失败（无循环）: {e2}")
             except Exception as e:
                 logger.error(f"告警回调失败: {e}")
 

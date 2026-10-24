@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """风格引擎"""
 from pathlib import Path
 from typing import Dict, List, Optional

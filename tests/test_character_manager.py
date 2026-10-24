@@ -1,4 +1,5 @@
 """角色卡管理器测试"""
+import pytest
 import yaml
 from characters.manager import CharacterCard, CharacterManager
 
@@ -30,7 +31,7 @@ def test_character_manager_load(tmp_path):
     with open(cards_dir / "test.yaml", "w") as f:
         yaml.dump(data, f)
 
-    mgr = CharacterManager(str(cards_dir))
+    mgr = CharacterManager(str(cards_dir), str(tmp_path / "roles"))
     assert "test" in mgr.list_cards()
     card = mgr.get("test")
     assert card.name == "测试卡"
@@ -46,3 +47,49 @@ def test_character_card_learned_traits():
     })
     prompt = card.get_system_prompt()
     assert "用户喜欢简洁" in prompt
+
+
+def test_save_rejects_path_traversal(tmp_path):
+    manager = CharacterManager(str(tmp_path / "cards"), str(tmp_path / "roles"))
+    card = CharacterCard({"name": "bad"})
+
+    with pytest.raises(ValueError, match="角色卡名称"):
+        manager.save("../outside", card)
+    assert not (tmp_path.parent / "outside.yaml").exists()
+
+
+def test_markdown_card_roundtrip(tmp_path):
+    manager = CharacterManager(str(tmp_path / "cards"), str(tmp_path / "roles"))
+    card = CharacterCard({
+        "name": "测试人格",
+        "description": "Markdown 卡",
+        "system_prompt": "# 身份\n\n你是测试人格。\n\n## 语气\n\n简洁。",
+        "rules": ["说中文"],
+        "greeting": "你好",
+    })
+
+    manager.save("测试人格", card)
+
+    path = tmp_path / "roles" / "测试人格.md"
+    assert path.is_file()
+    reloaded = CharacterManager(str(tmp_path / "cards"), str(tmp_path / "roles"))
+    loaded = reloaded.get("测试人格")
+    assert loaded is not None
+    assert "你是测试人格" in loaded.system_prompt
+    assert loaded.rules == ["说中文"]
+    assert "- 说中文" in loaded.get_system_prompt()
+
+
+def test_legacy_yaml_cards_migrate_to_markdown(tmp_path):
+    cards = tmp_path / "cards"
+    roles = tmp_path / "roles"
+    cards.mkdir()
+    (cards / "legacy.yaml").write_text(
+        "name: 旧卡\nsystem_prompt: 你是{{name}}\nrules:\n- 规则\n",
+        encoding="utf-8",
+    )
+    manager = CharacterManager(str(cards), str(roles))
+
+    assert manager.migrate_legacy_cards() == 1
+    assert (roles / "legacy.md").is_file()
+    assert manager.migrate_legacy_cards() == 0

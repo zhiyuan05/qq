@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Web Login - 聊天机器人</title>
+  <link rel="stylesheet" href="/static/login.css">
+  <script src="/static/login.js"></script>
+</head>
+<body>
+  <main class="page-main">
+    <div class="login-shell">
+      <section class="login-card" id="tiltCard">
+        <div class="tilt-glow" id="tiltGlow" aria-hidden="true"></div>
+
+        <header class="card-header">
+          <div class="brand">
+            <img class="brand-logo" src="/static/login-logo.svg" alt="" width="112" height="112">
+            <div class="brand-title"><span>Web </span><span class="accent">Login </span></div>
+          </div>
+          <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换深色模式">
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+            </svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+        </header>
+
+        <div class="card-body">
+          <p class="status-line" id="statusLine">🔐 正在检查登录状态，也可以直接输入Token登录</p>
+
+          <form id="loginForm" novalidate>
+            <div class="sr-only">
+              <label for="username">账号</label>
+              <input type="text" id="username" name="username" value="napcat-webui" autocomplete="username" readonly tabindex="-1" aria-hidden="true">
+            </div>
+            <div class="token-field">
+              <label for="token">Token</label>
+              <div class="token-row">
+                <svg class="key-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="7.5" cy="15.5" r="3.5"></circle>
+                  <path d="m10 13 9-9M16 7l2 2M13.5 9.5l2 2"></path>
+                </svg>
+                <input type="password" id="token" name="password" placeholder="请输入token" autocomplete="current-password" autofocus>
+                <button type="button" class="clear-btn" id="clearToken" aria-label="清除" hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6 6 18"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <p class="hint">💡 提示：请从服务器 .env 中查看 <code>CHATBOT_WEB_AUTH_TOKEN</code></p>
+
+          <button type="submit" form="loginForm" class="login-btn" id="loginBtn">
+            <span class="spinner" aria-hidden="true"></span>
+            <img class="btn-logo" src="/static/login-logo.svg" alt="" width="36" height="36">
+            <span class="btn-label">登录</span>
+          </button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="toast" id="error" role="alert" aria-live="polite">
+    <span class="toast-icon" aria-hidden="true">!</span>
+    <span class="toast-text">登录失败：令牌错误</span>
+  </div>
+</body>
+</html>

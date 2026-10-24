@@ -52,6 +52,63 @@ class TestLearningScheduler:
         scheduler.start()
         await asyncio.sleep(0.1)
         scheduler.stop()
+        scheduler.stop()
+        assert await scheduler.drain() is True
+
+    @pytest.mark.asyncio
+    async def test_stop_drains_owned_learning_task_and_rejects_new_trigger(self):
+        scheduler = LearningScheduler(trigger_interval=1, shutdown_timeout=0.2)
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        calls = 0
+
+        async def callback():
+            nonlocal calls
+            calls += 1
+            entered.set()
+            await release.wait()
+
+        scheduler.set_learn_callback(callback)
+        scheduler.on_conversation_end()
+        await entered.wait()
+        scheduler.stop()
+        scheduler.on_conversation_end()
+
+        draining = asyncio.create_task(scheduler.drain())
+        await asyncio.sleep(0)
+        assert not draining.done()
+
+        release.set()
+        assert await draining is True
+        assert calls == 1
+        assert not scheduler._tasks
+
+    @pytest.mark.asyncio
+    async def test_learning_drain_timeout_cancels_owned_task(self):
+        scheduler = LearningScheduler(
+            trigger_interval=1,
+            shutdown_timeout=0.01,
+            cancel_timeout=0.1,
+        )
+        entered = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def callback():
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        scheduler.set_learn_callback(callback)
+        scheduler.on_conversation_end()
+        await entered.wait()
+        scheduler.stop()
+
+        assert await asyncio.wait_for(scheduler.drain(), timeout=0.5) is False
+        assert cancelled.is_set()
+        assert scheduler._drain_timed_out is True
+        assert not scheduler._tasks
 
 
 class TestLearningAnalyzer:

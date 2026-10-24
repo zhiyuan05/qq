@@ -1,10 +1,13 @@
 """长消息智能拆分"""
+from __future__ import annotations
+
 import re
 from typing import List
 
 
 def split_message(text: str, max_length: int = 2000) -> List[str]:
     """按语义边界拆分长消息"""
+
     if len(text) <= max_length:
         return [text]
 

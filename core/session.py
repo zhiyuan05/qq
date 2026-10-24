@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from platforms.models import UnifiedMessage
+from platforms.models import Attachment, UnifiedMessage
 
 
 @dataclass
@@ -13,6 +13,7 @@ class ChatMessage:
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
     token_count: int = 0
+    attachments: List[Attachment] = field(default_factory=list)
 
 
 @dataclass
@@ -24,11 +25,26 @@ class Session:
     style: str = "casual"
     messages: List[ChatMessage] = field(default_factory=list)
     summary: str = ""
+    summary_until_id: int = 0
     created_at: datetime = field(default_factory=datetime.now)
     last_active: datetime = field(default_factory=datetime.now)
+    revision: int = 0
 
-    def add_message(self, role: str, content: str, token_count: int = 0):
-        self.messages.append(ChatMessage(role=role, content=content, token_count=token_count))
+    def add_message(
+        self,
+        role: str,
+        content: str,
+        token_count: int = 0,
+        attachments: List[Attachment] | None = None,
+    ):
+        self.messages.append(
+            ChatMessage(
+                role=role,
+                content=content,
+                token_count=token_count,
+                attachments=list(attachments or []),
+            )
+        )
         self.last_active = datetime.now()
 
     def get_recent_messages(self, n: int = 20) -> List[Dict[str, str]]:
@@ -75,6 +91,21 @@ class SessionManager:
 
     def clear(self, session_id: str):
         self._sessions.pop(session_id, None)
+
+    def restore(self, sessions: list[Session]) -> int:
+        """装载持久化会话；同 ID 的当前内存状态优先。"""
+
+        restored = 0
+        for session in sessions:
+            if session.session_id not in self._sessions:
+                self._sessions[session.session_id] = session
+                restored += 1
+        return restored
+
+    def replace(self, session: Session) -> None:
+        """Replace an in-memory snapshot after a coordinated database refresh."""
+
+        self._sessions[session.session_id] = session
 
     def should_summarize(self, session: Session) -> bool:
         return len(session.messages) > self.summarize_after

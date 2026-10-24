@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Content filter middleware for responses."""
 from core.pipeline import Middleware, PipelineContext
 from security.content_filter import ContentFilter

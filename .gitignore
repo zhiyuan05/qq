@@ -15,11 +15,10 @@ venv/
 .vscode/
 .idea/
 
-# Data
-data/chatbot.db
-data/chroma/
-data/learning/
-data/logs/
+# Runtime data (includes SQLite WAL/SHM, vector data, logs and learned output)
+data/
+# Auto-collected stickers are runtime data; hand-curated library files can be committed.
+characters/stickers/collected/
 
 # Config (local overrides)
 config.local.yaml
@@ -30,3 +29,7 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# Local browser QA artifacts
+.playwright-cli/
+output/playwright/

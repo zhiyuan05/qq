@@ -205,13 +205,13 @@ async def test_content_filter_middleware(tmp_path):
 
 @pytest.mark.asyncio
 async def test_split_middleware_splits_long():
+    """SplitMiddleware 仅记录日志不截断（平台层实际拆分）"""
     mw = SplitMiddleware(max_length=50)
     long_text = "这是第一句话。" * 10 + "这是第二句话。" * 10
     ctx = PipelineContext(user_id="user1", content="hello", response=long_text)
     await mw.on_response(ctx)
-    assert len(ctx.response) <= 50
-    assert ctx.metadata.get("chunks") is not None
-    assert len(ctx.metadata["chunks"]) > 1
+    # 不截断，保持完整响应 — 平台层通过 send_long_message 拆分
+    assert ctx.response == long_text
 
 
 @pytest.mark.asyncio

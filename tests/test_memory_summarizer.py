@@ -30,6 +30,20 @@ async def test_summarize_with_llm():
     assert "问候" in result or "友好" in result
 
 
+@pytest.mark.asyncio
+async def test_summarize_falls_back_when_all_providers_failed():
+    from memory.summarizer import ConversationSummarizer
+
+    mock_llm = AsyncMock()
+    mock_llm.chat.return_value = "抱歉，我暂时无法回复，请稍后再试。"
+    mock_llm.last_call_succeeded = False
+    summarizer = ConversationSummarizer(llm_client=mock_llm)
+
+    result = await summarizer.summarize([{"role": "user", "content": "需要保留的事实"}])
+
+    assert result == "需要保留的事实"
+
+
 def test_format_messages():
     from memory.summarizer import ConversationSummarizer
     summarizer = ConversationSummarizer()

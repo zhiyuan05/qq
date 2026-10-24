@@ -2,25 +2,166 @@ name: Test
 
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-python@v6.2.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
       - name: Install dependencies
         run: |
           python -m pip install -U pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Static checks
+        run: python -m ruff check .
+      - name: Check deployment script syntax
+        if: matrix.python-version == '3.14'
+        run: bash -n deploy.sh
       - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+      - name: Build wheel
+        if: matrix.python-version == '3.14'
+        run: python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
+      - name: Verify wheel contents
+        if: matrix.python-version == '3.14'
         run: |
-          python -m pytest tests/ -v --tb=short
-      - name: Check import
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheels = list(Path("dist").glob("chatbot-*.whl"))
+          assert len(wheels) == 1, wheels
+          with ZipFile(wheels[0]) as archive:
+              names = set(archive.namelist())
+
+          required = {
+              "core/engine.py",
+              "database/db.py",
+              "database/migrate.py",
+              "database/migrations/003_session_revision_and_entity_identity.sql",
+              "database/migrations/004_durable_execution.sql",
+              "web/templates/chat.html",
+              "web/static/chat.js",
+          }
+          missing = required - names
+          forbidden = {
+              name
+              for name in names
+              if name.startswith(("build/", "data/", "dist/", "tests/"))
+              or "/__pycache__/" in name
+              or name.endswith((".pyc", ".pyo"))
+          }
+          assert not missing, f"wheel is missing: {sorted(missing)}"
+          assert not forbidden, f"wheel contains generated/runtime files: {sorted(forbidden)}"
+          PY
+      - name: Smoke test installed wheel
+        if: matrix.python-version == '3.14'
         run: |
-          python -c "from core.engine import Engine; print('OK')"
+          python -m pip install --force-reinstall --no-deps dist/chatbot-*.whl
+          cd /tmp
+          chatbot-migrate --help
+          python - <<'PY'
+          import asyncio
+          import tempfile
+          from importlib.metadata import version
+          from pathlib import Path
+
+          from database.db import check_db, dispose_db, init_db
+          from utils.version import __version__
+
+          with tempfile.TemporaryDirectory() as directory:
+              database = str(Path(directory) / "wheel-smoke.db")
+              asyncio.run(init_db(database))
+              assert asyncio.run(check_db(database))
+              asyncio.run(dispose_db(database))
+          assert __version__ == version("chatbot")
+          PY
+      - name: Check imports
+        run: |
+          python - <<'PY'
+          from core.engine import Engine
+          from core.pipeline import Middleware, Pipeline
+          from memory.entity_memory import EntityMemory
+          from memory.long_term import LongTermMemory
+          from platforms.models import Platform, UnifiedMessage
+          from security.circuit_breaker import CircuitBreaker
+          from security.rate_limiter import RateLimiter
+
+          print('All imports OK')
+          PY
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chatbot
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: chatbot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chatbot -d chatbot_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_URL: postgresql+asyncpg://chatbot:test-password@127.0.0.1:5432/chatbot_test
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run PostgreSQL integration contract
+        run: python -m pytest tests/test_postgres_integration.py -v --tb=short
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Validate Compose
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          CHATBOT_POSTGRES_PASSWORD=test-password docker compose -f docker-compose.yml -f docker-compose.postgres.yml config --quiet
+      - uses: docker/setup-buildx-action@v4.1.0
+      - uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: chatbot:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify rootless runtime and imports
+        run: >-
+          docker run --rm --entrypoint python chatbot:test -c
+          "import os; assert os.getuid() != 0; from web.app import app; assert app.version == '2.4.0'"
+      - name: Build optional voice image (non-blocking)
+        continue-on-error: true
+        run: docker build --build-arg INSTALL_VOICE=true -t chatbot:voice .
+      - name: Verify optional voice imports (non-blocking)
+        continue-on-error: true
+        run: >-
+          docker run --rm --entrypoint python chatbot:voice -c
+          "import media.voice; print('voice-ok')"

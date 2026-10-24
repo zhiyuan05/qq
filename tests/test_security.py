@@ -213,7 +213,7 @@ def test_filter_logs(content_filter):
     content_filter.filter("赌博内容")
     logs = content_filter.get_filter_log()
     assert len(logs) > 0
-    assert "赌博" in logs[0]["original"]
+    assert logs[0]["word_count"] >= 1
 
 
 # === Alert Manager ===
@@ -258,3 +258,12 @@ def test_alert_stats(alert_manager):
     assert stats["total"] == 3
     assert stats["by_level"]["WARNING"] == 2
     assert stats["by_level"]["INFO"] == 1
+
+
+def test_conversation_depth_zero_means_unlimited():
+    limiter = RateLimiter(max_conversation_depth=0)
+    for _ in range(1000):
+        limiter.record_exchange("user1")
+    allowed, reason = limiter.check_depth("user1")
+    assert allowed is True
+    assert reason == ""

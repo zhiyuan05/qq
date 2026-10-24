@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Active time window middleware: only respond during configured hours."""
 from core.pipeline import Middleware, PipelineContext
 from utils.logger import setup_logger
@@ -15,7 +17,13 @@ class ActiveWindowMiddleware(Middleware):
             return True
 
         hour = ctx.timestamp.hour
-        if self.start_hour <= hour < self.end_hour:
+        if self.start_hour < self.end_hour:
+            is_active = self.start_hour <= hour < self.end_hour
+        else:
+            # 支持跨午夜时段，例如 22:00-06:00。
+            is_active = hour >= self.start_hour or hour < self.end_hour
+
+        if is_active:
             return True
 
         ctx.blocked = True

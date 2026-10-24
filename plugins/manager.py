@@ -1,4 +1,7 @@
 """插件管理器"""
+from __future__ import annotations
+
+from collections.abc import Callable
 from typing import Dict, List, Optional
 
 from plugins.base import BasePlugin
@@ -38,6 +41,7 @@ class PluginManager:
 
     async def process_message(self, message: UnifiedMessage) -> Optional[UnifiedMessage]:
         """运行所有插件的消息预处理"""
+
         current = message
         for plugin in self._plugins.values():
             try:

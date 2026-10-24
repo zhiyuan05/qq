@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>对话 - 聊天机器人</title>
+  <link rel="stylesheet" href="/static/chat.css">
+  <script src="/static/chat.js" defer></script>
+</head>
+<body>
+  <div class="chat-shell">
+    <aside class="chat-side" aria-label="会话信息">
+      <a class="chat-brand" href="/">
+        <span class="brand-mark" aria-hidden="true">Q</span>
+        <span><strong>QQ Bot</strong><small>对话</small></span>
+      </a>
+
+      <button id="newChatBtn" class="side-action" type="button">新对话</button>
+
+      <div class="side-block">
+        <h2>当前会话</h2>
+        <div class="side-meta"><span>角色</span><strong id="sideCard">默认</strong></div>
+        <div class="side-meta"><span>风格</span><strong id="sideStyle">casual</strong></div>
+        <div class="side-meta"><span>消息</span><strong id="sideCount">0</strong></div>
+      </div>
+
+      <div class="side-block side-history-block">
+        <h2>最近消息</h2>
+        <div id="historyList" class="side-history">
+          <p class="side-empty">暂无消息</p>
+        </div>
+      </div>
+
+      <div class="side-block" id="summaryBlock" hidden>
+        <h2>会话摘要</h2>
+        <p id="sideSummary" class="side-summary"></p>
+      </div>
+
+      <div class="side-foot">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="sideStatus">准备就绪</span>
+      </div>
+    </aside>
+
+    <section class="chat-main">
+      <header class="header">
+        <a class="back" href="/">返回</a>
+        <span class="chat-avatar" aria-hidden="true">Q</span>
+        <h1>对话</h1>
+        <span id="status" class="status-pill" role="status" aria-live="polite">就绪</span>
+        <button class="dark-toggle" id="darkBtn" type="button" aria-label="切换深色模式">🌙</button>
+      </header>
+
+      <div class="toolbar">
+        <label><span class="sr-only">角色卡</span><select id="cardSelect"><option value="">角色卡...</option></select></label>
+        <label><span class="sr-only">风格</span><select id="styleSelect"><option value="">风格...</option></select></label>
+      </div>
+
+      <main class="chat-area" id="chat" aria-live="polite">
+        <div class="chat-empty" id="chatEmpty">
+          <span class="chat-empty-mark" aria-hidden="true">Q</span>
+          <strong>开始一段对话</strong>
+          <p>消息会实时显示在这里</p>
+        </div>
+      </main>
+
+      <form class="input-area" id="composer">
+        <label class="sr-only" for="input">输入消息</label>
+        <textarea id="input" rows="1" placeholder="输入消息..." autocomplete="off" autofocus></textarea>
+        <button id="sendBtn" type="submit">发送</button>
+      </form>
+    </section>
+  </div>
+</body>
+</html>

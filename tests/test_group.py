@@ -63,3 +63,29 @@ def test_group_character_override():
     group.style = "professional"
     assert group.character_card == "custom"
     assert group.style == "professional"
+
+
+def test_group_settings_persist(tmp_path):
+    path = tmp_path / "groups.json"
+    gm = GroupManager(str(path))
+    group = gm.get_or_create("qq", "g1")
+    group.mention_only = True
+    group.character_card = "猫娘"
+    gm.add_admin("qq", "g1", "u1")
+    gm.save()
+
+    restored = GroupManager(str(path))
+    saved = restored.get("qq", "g1")
+    assert saved is not None
+    assert saved.mention_only is True
+    assert saved.character_card == "猫娘"
+    assert restored.is_admin("qq", "g1", "u1") is True
+
+
+def test_group_settings_ignore_corrupt_file(tmp_path):
+    path = tmp_path / "groups.json"
+    path.write_text("not-json", encoding="utf-8")
+    gm = GroupManager(str(path))
+    assert gm.get("qq", "g1") is None
+    group = gm.get_or_create("qq", "g1")
+    assert group.group_id == "g1"

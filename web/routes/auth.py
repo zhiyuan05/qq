@@ -1,113 +1,119 @@
-"""Web 面板认证"""
+from __future__ import annotations
+
+"""Web 面板认证。"""
+import hashlib
+import hmac
 import secrets
+import time
+from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Request, WebSocket
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 
-auth_router = APIRouter()
+from web.schemas import OkResponse
 
-# 内存会话存储（重启即失效）
-_sessions: dict[str, str] = {}
+auth_page_router = APIRouter()
+auth_api_router = APIRouter(tags=["auth"])
+
+SESSION_MAX_AGE = 86400
+_LOGIN_TEMPLATE = Path(__file__).resolve().parents[1] / "templates" / "login.html"
+
+
+class LoginRequest(BaseModel):
+    token: str = Field(max_length=4096)
+
+
+def _get_auth_token() -> str:
+    from web.app import get_engine
+
+    engine = get_engine()
+    return engine.config.web.auth_token if engine else ""
+
+
+def _make_session(auth_token: str, issued_at: int | None = None) -> str:
+    timestamp = str(issued_at or int(time.time()))
+    signature = hmac.new(auth_token.encode(), timestamp.encode(), hashlib.sha256).hexdigest()
+    return f"{timestamp}.{signature}"
+
+
+def _valid_session(session: str, auth_token: str) -> bool:
+    try:
+        timestamp_text, signature = session.split(".", 1)
+        timestamp = int(timestamp_text)
+    except (TypeError, ValueError):
+        return False
+    if timestamp > time.time() + 60 or time.time() - timestamp > SESSION_MAX_AGE:
+        return False
+    expected = _make_session(auth_token, timestamp).split(".", 1)[1]
+    return secrets.compare_digest(signature, expected)
 
 
 def check_auth(request: Request) -> bool:
-    token = request.cookies.get("session")
-    return token in _sessions
+    auth_token = _get_auth_token()
+    if not auth_token:
+        return True
+    authorization = request.headers.get("authorization", "")
+    scheme, _, credential = authorization.partition(" ")
+    if scheme.lower() == "bearer" and secrets.compare_digest(credential, auth_token):
+        return True
+    return _valid_session(request.cookies.get("session", ""), auth_token)
 
 
 def require_auth(request: Request) -> bool:
     """检查是否需要认证。未配置 token 时放行。"""
-    from web.app import _engine
-    if not _engine:
-        return True
-    auth_token = getattr(_engine.config.web, "auth_token", "")
-    if not auth_token:
-        return True  # 未设置 token 时无需认证
+
     return check_auth(request)
 
 
-LOGIN_HTML = """<!DOCTYPE html>
-<html lang="zh"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登录 - 聊天机器人</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-  background:linear-gradient(135deg,#667eea,#764ba2);min-height:100vh;
-  display:flex;align-items:center;justify-content:center}
-.card{background:#fff;border-radius:16px;padding:32px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.15)}
-.card h1{text-align:center;color:#333;font-size:22px;margin-bottom:24px}
-.form-group{margin-bottom:16px}
-.form-group label{display:block;font-size:13px;color:#666;margin-bottom:4px}
-.form-group input{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;
-  font-size:15px;outline:none;transition:border-color .2s}
-.form-group input:focus{border-color:#667eea}
-.btn{width:100%;padding:12px;background:linear-gradient(135deg,#667eea,#764ba2);
-  color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer}
-.btn:hover{opacity:.9}
-.error{color:#e53e3e;font-size:13px;text-align:center;margin-top:8px;display:none}
-</style></head><body>
-<div class="card">
-  <h1>🔐 管理面板</h1>
-  <form id="loginForm">
-    <div class="form-group">
-      <label>访问令牌</label>
-      <input type="password" id="token" placeholder="输入配置中的 auth_token" autofocus>
-    </div>
-    <button type="submit" class="btn">登录</button>
-    <div class="error" id="error">令牌错误</div>
-  </form>
-</div>
-<script>
-document.getElementById('loginForm').onsubmit = async function(e) {
-  e.preventDefault();
-  const token = document.getElementById('token').value;
-  const resp = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({token})
-  });
-  if (resp.ok) {
-    const target = new URLSearchParams(location.search).get('next') || '/';
-    location.href = target;
-  } else {
-    document.getElementById('error').style.display = 'block';
-  }
-};
-</script></body></html>"""
-
-
-@auth_router.get("/login", response_class=HTMLResponse)
-async def login_page():
-    return LOGIN_HTML
-
-
-@auth_router.post("/api/auth/login")
-async def api_login(data: dict):
-    token = data.get("token", "")
-    from web.app import _engine
-    if not _engine:
-        return JSONResponse({"error": "引擎未就绪"}, status_code=503)
-    auth_token = getattr(_engine.config.web, "auth_token", "")
+def check_websocket_auth(websocket: WebSocket) -> bool:
+    auth_token = _get_auth_token()
     if not auth_token:
-        resp = JSONResponse({"ok": True})
-        return resp
-    if token == auth_token:
-        session_token = secrets.token_hex(16)
-        _sessions[session_token] = "admin"
-        resp = JSONResponse({"ok": True})
-        resp.set_cookie("session", session_token, httponly=True, max_age=86400)
-        return resp
+        return True
+    authorization = websocket.headers.get("authorization", "")
+    scheme, _, credential = authorization.partition(" ")
+    if scheme.lower() == "bearer" and secrets.compare_digest(credential, auth_token):
+        return True
+    return _valid_session(websocket.cookies.get("session", ""), auth_token)
+
+
+@auth_page_router.get("/login")
+async def login_page():
+    return FileResponse(_LOGIN_TEMPLATE, media_type="text/html")
+
+
+@auth_api_router.post("/auth/login", response_model=OkResponse)
+async def api_login(data: LoginRequest, request: Request):
+    from web.app import get_engine
+
+    engine = get_engine()
+    if not engine:
+        return JSONResponse({"error": "引擎未就绪"}, status_code=503)
+    auth_token = engine.config.web.auth_token
+    if not auth_token:
+        return JSONResponse({"ok": True})
+    if secrets.compare_digest(data.token, auth_token):
+        response = JSONResponse({"ok": True})
+        response.set_cookie(
+            "session",
+            _make_session(auth_token),
+            httponly=True,
+            max_age=SESSION_MAX_AGE,
+            secure=request.url.scheme == "https",
+            samesite="strict",
+            path="/",
+        )
+        return response
     return JSONResponse({"error": "令牌错误"}, status_code=403)
 
 
-@auth_router.post("/api/auth/logout")
+@auth_api_router.post("/auth/logout", response_model=OkResponse)
 async def api_logout():
-    resp = JSONResponse({"ok": True})
-    resp.delete_cookie("session")
-    return resp
+    response = JSONResponse({"ok": True})
+    response.delete_cookie("session", path="/", samesite="strict")
+    return response
 
 
-@auth_router.get("/api/auth/check")
+@auth_api_router.get("/auth/check", response_model=OkResponse)
 async def api_auth_check(request: Request):
     return {"ok": check_auth(request)}
