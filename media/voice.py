@@ -140,6 +140,41 @@ class VoiceService:
         except Exception as exc:
             logger.info("TTS 合成失败 (%s)", type(exc).__name__)
             return None
+
+        # NapCat estimates mp3 duration from bitrate before silk conversion,
+        # which can produce a voice QQ clients refuse to play. Converting to
+        # WAV first gives the encoder an exact duration header.
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg:
+            wav_path = target.with_suffix(".wav")
+            try:
+                subprocess.run(
+                    [
+                        ffmpeg,
+                        "-y",
+                        "-loglevel",
+                        "error",
+                        "-i",
+                        str(target),
+                        "-ar",
+                        "24000",
+                        "-ac",
+                        "1",
+                        str(wav_path),
+                    ],
+                    check=True,
+                    timeout=20,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                if wav_path.exists() and wav_path.stat().st_size > 0:
+                    try:
+                        target.unlink()
+                    except OSError:
+                        pass
+                    return str(wav_path)
+            except (subprocess.SubprocessError, OSError):
+                pass
         return str(target)
 
     def _store_audio(self, data: bytes, duration: float, transcript: str) -> Attachment | None:
