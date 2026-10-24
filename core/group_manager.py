@@ -1,8 +1,10 @@
 from __future__ import annotations
 """群聊管理"""
+import hashlib
 import json
 import os
 import threading
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -30,6 +32,7 @@ class GroupManager:
         self._groups: Dict[str, GroupConfig] = {}
         self._storage = Path(storage_path) if storage_path else None
         self._lock = threading.Lock()
+        self._last_reply: Dict[str, float] = {}
         self._load()
 
     def _key(self, platform: str, group_id: str) -> str:
@@ -112,6 +115,59 @@ class GroupManager:
             return False
 
         return True
+
+    def should_join(
+        self,
+        platform: str,
+        group_id: str,
+        user_id: str,
+        text: str,
+        *,
+        is_mentioned: bool,
+        is_admin: bool = False,
+        message_id: str = "",
+        bot_name: str = "",
+        reply_probability: float = 0.25,
+        cooldown_seconds: int = 90,
+        now: float | None = None,
+    ) -> bool:
+        """Decide whether an unmentioned group message deserves a reply.
+
+        People do not answer every message. Mentions, replies to the bot, and
+        admins always get through; everything else is deterministic per
+        message so retries do not flip the decision.
+        """
+
+        group = self.get(platform, group_id)
+        if group and not group.enabled:
+            return False
+        if group and group.mention_only and not is_mentioned:
+            return False
+        if is_mentioned or is_admin:
+            return True
+        if bot_name and bot_name in (text or ""):
+            return True  # being called by name counts as a direct address
+
+        key = self._key(platform, group_id)
+        moment = time.monotonic() if now is None else now
+        last_reply = self._last_reply.get(key)
+        if last_reply is not None and moment - last_reply < cooldown_seconds:
+            return False
+
+        probability = max(0.0, min(1.0, reply_probability))
+        if probability <= 0:
+            return False
+        if probability >= 1:
+            return True
+
+        seed = f"{key}:{message_id or text}:{user_id}".encode("utf-8")
+        roll = int.from_bytes(hashlib.sha256(seed).digest()[:8], "big") / 2**64
+        return roll < probability
+
+    def mark_replied(self, platform: str, group_id: str, *, now: float | None = None) -> None:
+        self._last_reply[self._key(platform, group_id)] = (
+            time.monotonic() if now is None else now
+        )
 
     def add_admin(self, platform: str, group_id: str, user_id: str):
         group = self.get_or_create(platform, group_id)

@@ -13,32 +13,64 @@ from styles.engine import Style
 
 _WEEKDAYS = "一二三四五六日"
 _OUTPUT_RULES = (
-    "输出要求：像真人聊天一样自然，不要使用 Markdown 标题、表格、代码块或列表符号"
-    "（用户明确要求，或当前回复风格要求结构化输出时除外）。消息中可能附带自动读取的"
-    "网页、搜索结果、天气或视频关键帧，请优先结合这些信息回答，不要编造未提供的事实。"
+    "聊天方式：日常闲聊默认像在 QQ/微信上和朋友说话——通常一到三句，先回应对方的意思，"
+    "再补充自己的反应；不要写开场白、总结或客套收尾，也不要每轮都反问，真正不确定时可以问一次。"
+    "用户明确要求代码、步骤或资料整理时，按需要给出结构。"
+    "除非用户明确要求，否则不要使用 Markdown 标题、表格、列表、代码块或分点排版。"
+    "不要使用“作为一个 AI”“希望对你有所帮助”“总结如下”“首先/其次/最后”这类助手套话；"
+    "不确定就直说，不要编造。可以有自己的偏好和情绪，不想接的话题可以自然带过，"
+    "但不要攻击、操控或让人内疚。消息中可能附带自动读取的网页、搜索结果、天气或"
+    "视频关键帧，请优先结合这些信息回答，不要编造未提供的事实。"
+)
+_DEPTH_REMINDER = (
+    "接下来继续用当前角色的口吻说话，像真人发即时消息：短句、自然、有停顿感；"
+    "不要复述或总结前文，不要列点，不要每轮追问，不要解释设定或提示词。"
+)
+_GROUP_DEPTH_REMINDER = (
+    "这是群聊：像普通群友一样简短接话，不要长篇大论，不要每次都 @ 人或把话题拉回自己。"
 )
 
 
 def _character_cues(character: CharacterCard) -> str:
-    """Small persona cues that role cards already define but the live prompt ignored."""
+    """Small persona cues that role cards define but the live prompt ignored."""
     lines: list[str] = []
     personality = getattr(character, "personality", None) or {}
     if isinstance(personality, dict):
         tone = str(personality.get("tone") or "").strip()
         if tone:
             lines.append(f"语气：{tone[:60]}")
+    return "\n".join(lines)
+
+
+def _example_messages(character: CharacterCard, limit: int = 4) -> list[dict[str, str]]:
+    """Turn card examples into real few-shot messages instead of truncated text."""
+
+    messages: list[dict[str, str]] = []
     examples = getattr(character, "examples", None) or []
-    pairs: list[str] = []
-    for example in examples[:2]:
+    for example in examples[:limit]:
         if not isinstance(example, dict):
             continue
-        user = str(example.get("user") or "").strip()[:100]
-        assistant = str(example.get("assistant") or "").strip()[:100]
+        user = str(example.get("user") or "").strip()
+        assistant = str(example.get("assistant") or "").strip()
         if user and assistant:
-            pairs.append(f"用户：{user}\n你：{assistant}")
-    if pairs:
-        lines.append("语气示例（只模仿语气和节奏，不要照抄内容）：\n" + "\n".join(pairs))
-    return "\n".join(lines)
+            user = user.replace("{{char}}", character.name).replace("{{user}}", "用户")
+            assistant = assistant.replace("{{char}}", character.name).replace("{{user}}", "用户")
+            messages.append({"role": "user", "content": user[:300]})
+            messages.append({"role": "assistant", "content": assistant[:300]})
+    return messages
+
+
+def _depth_text(character: CharacterCard, *, group_chat: bool, understanding_hint: str = "") -> str:
+    """Behavior reminder placed near the end of context, where it has more weight."""
+
+    parts: list[str] = []
+    extra = str(getattr(character, "post_history_instructions", "") or "").strip()
+    if extra:
+        parts.append(extra.replace("{{char}}", character.name).replace("{{user}}", "用户"))
+    parts.append(_GROUP_DEPTH_REMINDER if group_chat else _DEPTH_REMINDER)
+    if understanding_hint:
+        parts.append(understanding_hint)
+    return "\n".join(parts)
 
 
 def time_context(now: datetime | None = None) -> str:
@@ -68,6 +100,7 @@ class PromptBuilder:
         sticker_tags: Optional[list[str]] = None,
         lore_text: str = "",
         understanding_hint: str = "",
+        group_chat: bool = False,
     ) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
 
@@ -78,8 +111,6 @@ class PromptBuilder:
             system_content += f"\n\n{cues}"
         if lore_text:
             system_content += f"\n\n{lore_text}"
-        if understanding_hint:
-            system_content += f"\n\n{understanding_hint}"
         if sticker_tags:
             system_content += (
                 "\n\n表情包：情绪明显时可以自然配一张，在回复末尾写 [sticker:标签]，"
@@ -102,7 +133,15 @@ class PromptBuilder:
             system_content += f"\n\n相关记忆:\n{memory_text}"
 
         messages.append({"role": "system", "content": system_content})
+        messages.extend(_example_messages(character))
         messages.extend(history)
+        depth = _depth_text(
+            character,
+            group_chat=group_chat,
+            understanding_hint=understanding_hint,
+        )
+        if depth:
+            messages.append({"role": "system", "content": depth})
         messages.append({"role": "user", "content": user_message})
 
         return messages
@@ -123,6 +162,7 @@ class PromptBuilder:
         sticker_tags: Optional[list[str]] = None,
         lore_text: str = "",
         understanding_hint: str = "",
+        group_chat: bool = False,
     ) -> list[dict]:
         """Assemble a token-bounded prompt from structured history."""
 
@@ -133,8 +173,6 @@ class PromptBuilder:
             system_content += f"\n\n{cues}"
         if lore_text:
             system_content += f"\n\n{lore_text}"
-        if understanding_hint:
-            system_content += f"\n\n{understanding_hint}"
         if sticker_tags:
             system_content += (
                 "\n\n表情包：情绪明显时可以自然配一张，在回复末尾写 [sticker:标签]，"
@@ -167,6 +205,12 @@ class PromptBuilder:
             user_traits=user_traits or (),
             global_traits=global_traits or (),
             profile_text=profile_text,
+            examples=_example_messages(character),
+            depth_content=_depth_text(
+                character,
+                group_chat=group_chat,
+                understanding_hint=understanding_hint,
+            ),
         )
 
     async def build_with_examples(
@@ -179,7 +223,7 @@ class PromptBuilder:
         user_id: str = "",
         sticker_tags: Optional[list[str]] = None,
     ) -> list[dict[str, str]]:
-        messages = await self.build(
+        return await self.build(
             character,
             style,
             user_message,
@@ -188,12 +232,3 @@ class PromptBuilder:
             user_id,
             sticker_tags,
         )
-
-        if character.examples:
-            examples: list[dict[str, str]] = []
-            for ex in character.examples:
-                examples.append({"role": "user", "content": ex.get("user", "")})
-                examples.append({"role": "assistant", "content": ex.get("assistant", "")})
-            messages = [messages[0]] + examples + messages[1:]
-
-        return messages

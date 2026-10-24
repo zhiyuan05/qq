@@ -403,10 +403,13 @@ class HumanizeConfig(StrictConfigModel):
     max_bubbles: int = Field(default=3, ge=1, le=8)
     max_bubble_chars: int = Field(default=500, ge=20, le=2000)
     split_threshold: int = Field(default=60, ge=10, le=500)
+    single_bubble_probability: float = Field(default=0.2, ge=0, le=1)
     typing_chars_per_second: float = Field(default=6.0, gt=0, le=100)
     min_delay: float = Field(default=0.8, ge=0, le=30)
     max_delay: float = Field(default=4.0, ge=0, le=60)
     quote_probability: float = Field(default=0.5, ge=0, le=1)
+    group_reply_probability: float = Field(default=0.25, ge=0, le=1)
+    group_reply_cooldown_seconds: int = Field(default=90, ge=0, le=3600)
     polish: bool = True
 
 

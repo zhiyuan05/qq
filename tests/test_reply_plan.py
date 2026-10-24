@@ -22,7 +22,7 @@ def _config() -> AppConfig:
         rate_limit={"enabled": False},
         stickers={"enabled": False},
         persona={"enabled": False},
-        humanize={"enabled": True, "quote_probability": 0.0},
+        humanize={"enabled": True, "quote_probability": 0.0, "group_reply_probability": 1.0},
     )
 
 

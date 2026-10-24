@@ -45,6 +45,25 @@ def test_summary_survives_long_history_and_latest_exchange_is_kept():
     assert "h7" in contents
 
 
+def test_examples_and_depth_prompt_are_ordered_without_breaking_the_tail():
+    assembler = ContextAssembler(_config(), counter=_fixed_counter(100))
+
+    messages = assembler.assemble(
+        system_content="system",
+        user_message="current",
+        examples=[
+            {"role": "user", "content": "example-user"},
+            {"role": "assistant", "content": "example-assistant"},
+        ],
+        depth_content="stay in character",
+    )
+
+    contents = [message["content"] for message in messages]
+    assert contents[-1] == "current"
+    assert contents[-2] == "stay in character"
+    assert contents.index("example-user") < contents.index("example-assistant")
+
+
 def test_current_message_and_system_survive_an_impossible_budget():
     assembler = ContextAssembler(_config(), counter=_fixed_counter(1000))
 

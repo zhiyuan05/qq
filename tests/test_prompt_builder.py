@@ -50,7 +50,7 @@ async def test_build_injects_understanding_hint():
         understanding_hint="理解提示：结合上下文推断。",
     )
 
-    assert "理解提示：结合上下文推断。" in messages[0]["content"]
+    assert "理解提示：结合上下文推断。" in messages[-2]["content"]
 
 
 @pytest.mark.asyncio
@@ -97,6 +97,51 @@ async def test_build_with_entity_memory():
 
     unrelated = await builder.build(card, style, "你好", [], user_id="u1")
     assert "Python" not in unrelated[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_build_puts_post_history_instructions_near_the_end():
+    builder = PromptBuilder()
+    card = CharacterCard({
+        "name": "助手",
+        "system_prompt": "你是{{name}}",
+        "post_history_instructions": "不要写旁白。",
+    })
+    style = Style({"name": "casual", "prompt_modifier": ""})
+
+    messages = await builder.build(card, style, "你好", [])
+
+    assert "不要写旁白。" not in messages[0]["content"]
+    assert messages[-2]["role"] == "system"
+    assert "不要写旁白。" in messages[-2]["content"]
+    assert messages[-1] == {"role": "user", "content": "你好"}
+
+
+@pytest.mark.asyncio
+async def test_build_uses_full_examples_as_few_shot_messages():
+    builder = PromptBuilder()
+    reply = "今天路过那家店，想起你上次说想吃里面的草莓蛋糕，就顺手买了一块。"
+    card = CharacterCard({
+        "name": "助手",
+        "system_prompt": "你是{{name}}",
+        "examples": [{"user": "今天怎么样", "assistant": reply}],
+    })
+    style = Style({"name": "casual", "prompt_modifier": ""})
+
+    messages = await builder.build(card, style, "在吗", [])
+
+    assert {"role": "assistant", "content": reply} in messages
+
+
+@pytest.mark.asyncio
+async def test_build_group_chat_adds_group_specific_guidance():
+    builder = PromptBuilder()
+    card = CharacterCard({"name": "助手", "system_prompt": "你是{{name}}"})
+    style = Style({"name": "casual", "prompt_modifier": ""})
+
+    messages = await builder.build(card, style, "大家好", [], group_chat=True)
+
+    assert "群聊" in messages[-2]["content"]
 
 
 @pytest.mark.asyncio

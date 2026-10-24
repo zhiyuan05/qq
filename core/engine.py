@@ -877,6 +877,7 @@ class Engine:
             return False, msg, ctx, None, ctx.block_reason if ctx.blocked else None
 
         # 群聊 @mention 检测
+        is_mentioned = False
         if msg.group_id:
             is_mentioned, clean_content = self._check_mention(msg)
             group_cfg = self.group_manager.get(msg.platform.value, msg.group_id)
@@ -908,6 +909,26 @@ class Engine:
                 return False, msg, ctx, parsed, None
             return False, msg, ctx, parsed, reason
 
+        ctx.metadata["is_chat"] = parsed is None
+        if msg.group_id and parsed is None:
+            group_admin = self.group_manager.is_admin(
+                msg.platform.value, msg.group_id, msg.user_id
+            )
+            if not self.group_manager.should_join(
+                msg.platform.value,
+                msg.group_id,
+                msg.user_id,
+                msg.content,
+                is_mentioned=is_mentioned,
+                is_admin=ctx.is_owner or group_admin,
+                message_id=msg.message_id,
+                bot_name=self.config.bot.name,
+                reply_probability=self.config.humanize.group_reply_probability,
+                cooldown_seconds=self.config.humanize.group_reply_cooldown_seconds,
+            ):
+                logger.debug("[%s] 群聊参与判定: 保持沉默", request_id)
+                return False, msg, ctx, parsed, None
+
         # ═══ PIPELINE: on_llm ═══ (LLM 调用前钩子)
         if not await self.pipeline.run_stage("on_llm", ctx):
             return False, msg, ctx, parsed, ctx.block_reason if ctx.blocked else None
@@ -932,6 +953,8 @@ class Engine:
 
         if not await self.pipeline.run_stage("on_send", ctx):
             return ctx.block_reason if ctx.blocked else None
+        if ctx.response and msg.group_id and ctx.metadata.get("is_chat"):
+            self.group_manager.mark_replied(msg.platform.value, msg.group_id)
         return ctx.response
 
     def _apply_session_preferences(
@@ -1378,6 +1401,7 @@ class Engine:
                 sticker_tags=sticker_tags,
                 lore_text=lore_text,
                 understanding_hint=understanding,
+                group_chat=bool(msg.group_id),
             )
         else:
             history = session.get_context_messages(self.config.memory.short_term.max_messages)
@@ -1391,6 +1415,7 @@ class Engine:
                 user_id=msg.principal_key,
                 lore_text=lore_text,
                 understanding_hint=understanding,
+                group_chat=bool(msg.group_id),
             )
 
         return session, character, style, is_new_session, messages

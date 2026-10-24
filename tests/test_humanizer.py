@@ -51,6 +51,19 @@ async def test_long_reply_splits_into_at_most_three_bubbles_with_delays():
 
 
 @pytest.mark.asyncio
+async def test_long_reply_can_stay_in_one_bubble():
+    humanizer = Humanizer(
+        HumanizeConfig(split_threshold=10, single_bubble_probability=1.0),
+        VoiceConfig(),
+    )
+    text = "第一句话。第二句话。第三句话。"
+
+    plan = await humanizer.plan(text, _message(), rng=random.Random(7))
+
+    assert plan.bubbles == [text]
+
+
+@pytest.mark.asyncio
 async def test_overlong_reply_falls_back_to_legacy_delivery():
     humanizer = Humanizer(HumanizeConfig(max_bubble_chars=20, split_threshold=10), VoiceConfig())
     plan = await humanizer.plan("很长" * 100, _message(), rng=random.Random(3))

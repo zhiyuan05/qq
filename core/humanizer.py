@@ -25,10 +25,17 @@ class Humanizer:
         self.config = config
         self.voice = voice or VoiceConfig()
 
-    def _split(self, text: str) -> list[str]:
+    def _split(self, text: str, rng: random.Random) -> list[str]:
         text = text.strip()
         if len(text) <= self.config.split_threshold:
             return [text] if text else []
+        # Real people sometimes send one longer message instead of always
+        # chopping every reply into the same number of bubbles.
+        if (
+            len(text) <= self.config.max_bubble_chars
+            and rng.random() < self.config.single_bubble_probability
+        ):
+            return [text]
         pieces = [piece.strip() for piece in _SENTENCE_SPLIT.split(text) if piece.strip()]
         if not pieces:
             return [text]
@@ -102,7 +109,7 @@ class Humanizer:
             plan.humanized = False
             return plan
 
-        bubbles = self._split(cleaned) if cleaned else []
+        bubbles = self._split(cleaned, rng) if cleaned else []
         if any(len(bubble) > self.config.max_bubble_chars for bubble in bubbles):
             plan.humanized = False
             plan.bubbles = [cleaned] if cleaned else []

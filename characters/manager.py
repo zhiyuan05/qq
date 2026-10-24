@@ -74,9 +74,9 @@ class CharacterCard:
         if self.scenario and self.scenario not in prompt:
             prompt += f"\n\n当前场景：{self.scenario}"
 
-        if self.post_history_instructions.strip():
-            extra = self.post_history_instructions.replace("{{char}}", self.name).replace("{{user}}", "用户")
-            prompt += f"\n\n额外要求:\n{extra.strip()}"
+        # post_history_instructions is injected near the end of the conversation
+        # by PromptBuilder, where it carries more weight than the opening system
+        # prompt. Keeping it out of here avoids duplicating the same instructions.
 
         if self.learned_traits:
             prompt += "\n\n根据以往交流经验:\n"

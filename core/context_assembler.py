@@ -98,11 +98,16 @@ class ContextAssembler:
         user_traits: Sequence[str] = (),
         global_traits: Sequence[str] = (),
         profile_text: str = "",
+        examples: Sequence[dict[str, Any]] = (),
+        depth_content: str = "",
     ) -> list[dict[str, Any]]:
         system = {"role": "system", "content": system_content}
         current = {"role": "user", "content": user_message}
+        depth = {"role": "system", "content": depth_content} if depth_content else None
         budget = self.config.max_prompt_tokens
-        used = self._count([system, current])
+        # Behavior guidance is deliberately placed at the end; reserve its cost
+        # up front so history and optional context yield instead.
+        used = self._count([system, current, *([depth] if depth else [])])
 
         recent = list(history)[-self.config.recent_messages :]
         reserve_items: list[dict[str, Any]] = []
@@ -168,6 +173,16 @@ class ContextAssembler:
             if take(block):
                 context_blocks.append(block)
 
+        for example in examples[:8]:
+            role = example.get("role") if isinstance(example, dict) else None
+            content = example.get("content") if isinstance(example, dict) else None
+            if role not in {"user", "assistant"} or content in (None, ""):
+                continue
+            block = {"role": role, "content": content}
+            if not take(block):
+                break
+            context_blocks.append(block)
+
         selected_history: list[dict[str, Any]] = []
         images_remaining = self.history_image_window
         for message in reversed(recent):
@@ -184,4 +199,10 @@ class ContextAssembler:
             selected_history.insert(0, item)
             used += cost
 
-        return [system, *context_blocks, *selected_history, current]
+        return [
+            system,
+            *context_blocks,
+            *selected_history,
+            *([depth] if depth else []),
+            current,
+        ]

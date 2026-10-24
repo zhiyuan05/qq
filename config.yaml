@@ -188,10 +188,13 @@ humanize:
   max_bubbles: 3
   max_bubble_chars: 500
   split_threshold: 60
+  single_bubble_probability: 0.2
   typing_chars_per_second: 15.0
   min_delay: 0.3
   max_delay: 1.5
   quote_probability: 0.5
+  group_reply_probability: 0.25
+  group_reply_cooldown_seconds: 90
   polish: true
 
 voice:
