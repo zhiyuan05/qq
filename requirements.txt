@@ -1,4 +1,4 @@
-fastapi>=0.110.0
+fastapi>=0.156.8
 uvicorn>=0.29.0
 pyyaml>=6.0
 pydantic>=2.0
