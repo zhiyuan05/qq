@@ -169,7 +169,13 @@ class EntityMemory:
         terms = _terms(query)
         # Nicknames, promises and shared experiences matter even when the
         # current sentence shares no keywords, so keep a small core block.
-        core = [entity for entity in entities if entity.entity_type == "relationship" and entity.value][:2]
+        core = [
+            entity
+            for entity in entities
+            if entity.entity_type == "relationship" and entity.value
+        ]
+        core.sort(key=lambda entity: str(entity.updated_at or ""), reverse=True)
+        core = core[: min(2, self.inject_top_k)]
         core_keys = {(entity.entity_type, entity.key) for entity in core}
 
         scored: list[tuple[int, Entity]] = []

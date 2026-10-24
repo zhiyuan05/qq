@@ -113,6 +113,12 @@ class ProactiveService:
         if self._task is not None and not self._task.done():
             return
         self._task = asyncio.create_task(self._loop(), name="engine:proactive")
+        logger.info(
+            "主动消息服务已启动（用户 %d，最小空闲 %.0f 分钟，每日 %d 条）",
+            len(self.users),
+            self.min_idle_seconds / 60,
+            self.daily_limit,
+        )
 
     async def stop(self) -> None:
         if self._task is None or self._task.done():
@@ -190,5 +196,6 @@ class ProactiveService:
                 logger.warning("主动消息发送失败 (%s)", type(exc).__name__)
                 continue
             self.store.record(session_id, moment)
+            logger.info("已向 %s 发送主动消息", session_id)
             delivered += 1
         return delivered

@@ -60,7 +60,11 @@ def update_relationship(
     mood = _clamp(mood + 0.08 * min(positive, 3) - 0.10 * min(negative, 3), -1.0, 1.0)
     energy = _clamp(energy - 0.02, 0.0, 1.0)
 
-    affinity = state.affinity + 0.03
+    affinity = state.affinity
+    if idle_hours > 72:
+        # Relationships cool a little after a long absence, but never reset.
+        affinity -= min(0.3, (idle_hours - 72) / 24 * 0.02)
+    affinity += 0.03
     if positive and not negative:
         affinity += 0.02
     elif negative and not positive:
