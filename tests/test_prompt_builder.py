@@ -134,6 +134,26 @@ async def test_build_uses_full_examples_as_few_shot_messages():
 
 
 @pytest.mark.asyncio
+async def test_build_injects_style_and_relationship_hints_at_depth():
+    builder = PromptBuilder()
+    card = CharacterCard({"name": "助手", "system_prompt": "你是{{name}}"})
+    style = Style({"name": "casual", "prompt_modifier": ""})
+
+    messages = await builder.build(
+        card,
+        style,
+        "在吗",
+        [],
+        style_hint="对方最近发消息偏短。",
+        relationship_text="你们目前关系比较熟。",
+    )
+
+    depth = messages[-2]["content"]
+    assert "对方最近发消息偏短。" in depth
+    assert "你们目前关系比较熟。" in depth
+
+
+@pytest.mark.asyncio
 async def test_build_group_chat_adds_group_specific_guidance():
     builder = PromptBuilder()
     card = CharacterCard({"name": "助手", "system_prompt": "你是{{name}}"})

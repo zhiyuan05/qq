@@ -60,7 +60,14 @@ def _example_messages(character: CharacterCard, limit: int = 4) -> list[dict[str
     return messages
 
 
-def _depth_text(character: CharacterCard, *, group_chat: bool, understanding_hint: str = "") -> str:
+def _depth_text(
+    character: CharacterCard,
+    *,
+    group_chat: bool,
+    understanding_hint: str = "",
+    style_hint: str = "",
+    relationship_text: str = "",
+) -> str:
     """Behavior reminder placed near the end of context, where it has more weight."""
 
     parts: list[str] = []
@@ -68,6 +75,10 @@ def _depth_text(character: CharacterCard, *, group_chat: bool, understanding_hin
     if extra:
         parts.append(extra.replace("{{char}}", character.name).replace("{{user}}", "用户"))
     parts.append(_GROUP_DEPTH_REMINDER if group_chat else _DEPTH_REMINDER)
+    if style_hint:
+        parts.append(style_hint)
+    if relationship_text:
+        parts.append(relationship_text)
     if understanding_hint:
         parts.append(understanding_hint)
     return "\n".join(parts)
@@ -101,6 +112,8 @@ class PromptBuilder:
         lore_text: str = "",
         understanding_hint: str = "",
         group_chat: bool = False,
+        style_hint: str = "",
+        relationship_text: str = "",
     ) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
 
@@ -139,6 +152,8 @@ class PromptBuilder:
             character,
             group_chat=group_chat,
             understanding_hint=understanding_hint,
+            style_hint=style_hint,
+            relationship_text=relationship_text,
         )
         if depth:
             messages.append({"role": "system", "content": depth})
@@ -163,6 +178,8 @@ class PromptBuilder:
         lore_text: str = "",
         understanding_hint: str = "",
         group_chat: bool = False,
+        style_hint: str = "",
+        relationship_text: str = "",
     ) -> list[dict]:
         """Assemble a token-bounded prompt from structured history."""
 
@@ -210,6 +227,8 @@ class PromptBuilder:
                 character,
                 group_chat=group_chat,
                 understanding_hint=understanding_hint,
+                style_hint=style_hint,
+                relationship_text=relationship_text,
             ),
         )
 

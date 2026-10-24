@@ -195,6 +195,16 @@ humanize:
   quote_probability: 0.5
   group_reply_probability: 0.25
   group_reply_cooldown_seconds: 90
+  relationship_enabled: true
+  style_profile_enabled: true
+  proactive_enabled: false
+  proactive_users: []
+  proactive_min_idle_minutes: 240
+  proactive_daily_limit: 2
+  proactive_quiet_start: 23
+  proactive_quiet_end: 8
+  proactive_interval_seconds: 300
+  proactive_state_path: "data/proactive.json"
   polish: true
 
 voice:

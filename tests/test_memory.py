@@ -83,3 +83,15 @@ async def test_relevant_profile_injects_only_top_matches(tmp_path):
     assert "用户画像:" in profile
 
     assert await mem.get_relevant_profile_text("user1", "今天天气如何") == ""
+
+
+@pytest.mark.asyncio
+async def test_relationship_entities_are_injected_without_keyword_overlap(tmp_path):
+    mem = EntityMemory(db_path=str(tmp_path / "test.db"))
+    await mem.store("user1", "preference", "喜欢的语言", "Python")
+    await mem.store("user1", "relationship", "称呼", "平时叫他小明")
+
+    profile = await mem.get_relevant_profile_text("user1", "今天天气如何")
+
+    assert "小明" in profile
+    assert "用户画像:" in profile

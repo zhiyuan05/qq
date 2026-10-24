@@ -167,19 +167,27 @@ class EntityMemory:
         if not entities:
             return ""
         terms = _terms(query)
+        # Nicknames, promises and shared experiences matter even when the
+        # current sentence shares no keywords, so keep a small core block.
+        core = [entity for entity in entities if entity.entity_type == "relationship" and entity.value][:2]
+        core_keys = {(entity.entity_type, entity.key) for entity in core}
+
         scored: list[tuple[int, Entity]] = []
         for entity in entities:
+            if (entity.entity_type, entity.key) in core_keys:
+                continue
             overlap = len(_terms(f"{entity.key} {entity.value}") & terms)
             if overlap > 0:
                 scored.append((overlap, entity))
-        if not scored:
+        if not scored and not core:
             return ""
         ranked = sorted(
             scored,
             key=lambda item: (item[0], item[1].confidence, item[1].updated_at),
             reverse=True,
         )
-        selected = [entity for _overlap, entity in ranked[: self.inject_top_k]]
+        remaining = max(0, self.inject_top_k - len(core))
+        selected = core + [entity for _overlap, entity in ranked[:remaining]]
         lines = ["用户画像:"]
         lines.extend(f"- {entity.key}: {entity.value}" for entity in selected)
         return "\n".join(lines)[: self.max_profile_chars]

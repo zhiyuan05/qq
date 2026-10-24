@@ -410,6 +410,16 @@ class HumanizeConfig(StrictConfigModel):
     quote_probability: float = Field(default=0.5, ge=0, le=1)
     group_reply_probability: float = Field(default=0.25, ge=0, le=1)
     group_reply_cooldown_seconds: int = Field(default=90, ge=0, le=3600)
+    relationship_enabled: bool = True
+    style_profile_enabled: bool = True
+    proactive_enabled: bool = False
+    proactive_users: list[str] = Field(default_factory=list)
+    proactive_min_idle_minutes: int = Field(default=240, ge=15, le=10080)
+    proactive_daily_limit: int = Field(default=2, ge=0, le=10)
+    proactive_quiet_start: int = Field(default=23, ge=0, le=23)
+    proactive_quiet_end: int = Field(default=8, ge=0, le=23)
+    proactive_interval_seconds: int = Field(default=300, ge=30, le=3600)
+    proactive_state_path: str = "data/proactive.json"
     polish: bool = True
 
 

@@ -23,10 +23,13 @@ from media.store import MediaStore
 from platforms.models import MessageType, Platform, ReplyPlan, UnifiedMessage
 from core.session import SessionManager, Session
 from core.router import MessageRouter
-from core.prompt_builder import PromptBuilder
+from core.prompt_builder import PromptBuilder, time_context
 from core.context_assembler import ContextAssembler
 from core.humanizer import Humanizer
 from core.links import extract_urls, fetch_link_summary
+from core.proactive import ProactiveService, ProactiveStore
+from core.relationship import RelationshipStore, describe_relationship, update_relationship
+from core.style_profile import format_style_hint
 from core.reminders import (
     LOCAL_TZ,
     Reminder,
@@ -74,6 +77,11 @@ logger = setup_logger("engine")
 
 _AVATAR_REQUEST = re.compile(
     r"(设为|设置|设置成|设成|换成|改成|换|改|当作|作为|做|当).{0,4}头像|头像.{0,4}(换成|改成|设为|设置|设置成|设成|换|改)"
+)
+_PROACTIVE_INSTRUCTION = (
+    "对方已经有一段时间没说话了。现在以角色身份主动发一条消息：一到两句，可以关心、"
+    "分享一件小事、接着上次的话题，或轻轻吐槽；不要提“很久没联系”，不要道歉，"
+    "不要像客服，不要连续追问。只输出消息本身。"
 )
 
 
@@ -132,6 +140,11 @@ class Engine:
         self.prompt_builder: PromptBuilder = deps.get("prompt_builder") or PromptBuilder(
             entity_memory=prompt_entity_memory
         )
+        self.relationship_store = (
+            RelationshipStore(self.entity_memory)
+            if config.humanize.relationship_enabled and config.memory.entity.enabled
+            else None
+        )
         self.summarizer: ConversationSummarizer = deps.get("summarizer") or ConversationSummarizer()
         if "session_store" in deps:
             self.session_store = deps["session_store"]
@@ -181,6 +194,20 @@ class Engine:
         else:
             self.reminder_store = ReminderStore("data/reminders.json")
         self.reminder_service = ReminderService(self.reminder_store, self._deliver_reminder)
+        self.proactive_service: ProactiveService | None = None
+        if config.humanize.proactive_enabled and config.humanize.proactive_users:
+            self.proactive_service = ProactiveService(
+                ProactiveStore(config.humanize.proactive_state_path),
+                self.session_manager,
+                self._deliver_proactive,
+                self._generate_proactive,
+                users=list(config.humanize.proactive_users),
+                min_idle_seconds=config.humanize.proactive_min_idle_minutes * 60,
+                daily_limit=config.humanize.proactive_daily_limit,
+                quiet_start=config.humanize.proactive_quiet_start,
+                quiet_end=config.humanize.proactive_quiet_end,
+                interval=config.humanize.proactive_interval_seconds,
+            )
         self._last_retention = 0.0
         self._entity_counters: dict[str, int] = {}
         self._vision_block_cache: dict[str, dict[str, Any]] = {}
@@ -334,6 +361,45 @@ class Engine:
         else:
             await self.send_qq_text(reminder.target_id, text)
 
+    async def _deliver_proactive(self, session: Session, text: str) -> None:
+        await self.send_qq_text(session.user_id, text)
+        # Keep the bot's own opener in context so the user's next reply can
+        # refer to it naturally.
+        session.add_message("assistant", text)
+
+    async def _generate_proactive(self, session: Session) -> str | None:
+        """Generate one short opener from the persona, summary and recent turns."""
+
+        character = (
+            self.character_manager.get(session.character_card)
+            or self.character_manager.get_default()
+        )
+        system_content = f"{character.get_system_prompt()}\n\n{time_context()}"
+        if self.relationship_store is not None:
+            try:
+                state = await self.relationship_store.load(session.user_id)
+                system_content += f"\n\n{describe_relationship(state)}"
+            except Exception:
+                pass
+
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_content}]
+        if session.summary:
+            messages.append({"role": "system", "content": f"之前的对话摘要：{session.summary}"})
+        messages.extend(session.get_recent_messages(6))
+        messages.append({"role": "system", "content": _PROACTIVE_INSTRUCTION})
+
+        try:
+            response = await self._get_llm().chat(messages)
+        except Exception as exc:
+            logger.debug("主动消息 LLM 调用失败 (%s)", type(exc).__name__)
+            return None
+        text = re.sub(r"\[(?:sticker|voice)[^\]]*\]", "", response or "", flags=re.I).strip()
+        if not text or "抱歉，我暂时无法回复" in text:
+            return None
+        if len(text) > 300:
+            text = text[:300].rstrip() + "…"
+        return text
+
     async def _maybe_natural_reminder(self, msg: UnifiedMessage) -> str | None:
         if msg.platform is not Platform.QQ or msg.group_id is not None:
             return None
@@ -416,6 +482,8 @@ class Engine:
             self._sticker_task = asyncio.create_task(self._index_stickers(), name="sticker-index")
         self._start_sticker_tagging()
         self.reminder_service.start()
+        if self.proactive_service is not None:
+            self.proactive_service.start()
         self._accepting_work = True
         self._shutdown_drain_timed_out = False
         self._started = True
@@ -679,6 +747,8 @@ class Engine:
             await asyncio.gather(self._sticker_tag_task, return_exceptions=True)
         self._sticker_tag_task = None
         await self.reminder_service.stop()
+        if self.proactive_service is not None:
+            await self.proactive_service.stop()
         pending_post = [task for task in self._post_chat_tasks if not task.done()]
         for task in pending_post:
             task.cancel()
@@ -1345,6 +1415,17 @@ class Engine:
 
         understanding = ambiguity_hint(msg.content, has_history=bool(session.messages))
 
+        style_hint = ""
+        relationship_text = ""
+        if msg.group_id is None:
+            if self.config.humanize.style_profile_enabled:
+                style_hint = format_style_hint(session.messages)
+            if self.relationship_store is not None:
+                state = await self.relationship_store.load(msg.principal_key)
+                state = update_relationship(state, msg.content)
+                relationship_text = describe_relationship(state)
+                await self.relationship_store.save(msg.principal_key, state)
+
         lore_text = ""
         if character.lorebook:
             try:
@@ -1402,6 +1483,8 @@ class Engine:
                 lore_text=lore_text,
                 understanding_hint=understanding,
                 group_chat=bool(msg.group_id),
+                style_hint=style_hint,
+                relationship_text=relationship_text,
             )
         else:
             history = session.get_context_messages(self.config.memory.short_term.max_messages)
@@ -1416,6 +1499,8 @@ class Engine:
                 lore_text=lore_text,
                 understanding_hint=understanding,
                 group_chat=bool(msg.group_id),
+                style_hint=style_hint,
+                relationship_text=relationship_text,
             )
 
         return session, character, style, is_new_session, messages
@@ -1723,7 +1808,7 @@ class Engine:
         try:
             llm = self._get_llm()
             prompt = [
-                {"role": "system", "content": "从对话中提取用户信息，返回JSON格式: {\"entities\": [{\"type\": \"preference/fact/skill/person\", \"key\": \"...\", \"value\": \"...\"}]}。如果没有值得记录的信息，返回空列表。只返回JSON。"},
+                {"role": "system", "content": "从对话中提取用户信息，返回JSON格式: {\"entities\": [{\"type\": \"preference/fact/skill/person/relationship\", \"key\": \"...\", \"value\": \"...\"}]}。relationship 用于称呼、约定、共同经历等关系记忆；如果没有值得记录的信息，返回空列表。只返回JSON。"},
                 {"role": "user", "content": f"用户: {user_msg}\n助手: {assistant_msg}"},
             ]
             result = await llm.chat(prompt)
