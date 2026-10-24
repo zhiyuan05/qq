@@ -8,7 +8,7 @@ version = "2.4.0"
 description = "QQ + Telegram 双平台、DeepSeek API 驱动的聊天机器人"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.110.0",
+    "fastapi>=0.156.8",
     "uvicorn>=0.29.0",
     "pyyaml>=6.0",
     "pydantic>=2.0",
