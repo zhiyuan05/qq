@@ -36,7 +36,7 @@ jobs:
         run: python -m pytest tests/ -v --tb=short
       - name: Build wheel
         if: matrix.python-version == '3.14'
-        run: python -m pip wheel --no-deps --wheel-dir dist .
+        run: python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
       - name: Verify wheel contents
         if: matrix.python-version == '3.14'
         run: |
