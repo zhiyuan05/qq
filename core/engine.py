@@ -362,6 +362,12 @@ class Engine:
             await self.send_qq_text(reminder.target_id, text)
 
     async def _deliver_proactive(self, session: Session, text: str) -> None:
+        platform = self.qq_platform()
+        guard = getattr(platform, "outbound_guard", None) if platform is not None else None
+        if guard is not None:
+            text = guard.filter(text)
+            if not text:
+                return
         await self.send_qq_text(session.user_id, text)
         # Keep the bot's own opener in context so the user's next reply can
         # refer to it naturally.
