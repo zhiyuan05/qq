@@ -23,7 +23,7 @@
 | 健康与指标 | `/health`、`/health/ready`、`/metrics`、`/stats`、`/stats/detailed` |
 | 会话 | `/sessions`、`/sessions/{id}`、`/sessions/{id}/export` |
 | 对话 | `/chat` |
-| 角色与风格 | `/cards`、`/cards/{name}`、`/styles` |
+| 角色与风格 | `/cards`、`/cards/{name}`、`/cards/import`、`/cards/{name}/export`、`/styles` |
 | 管理 | `/logs`、`/platforms/status`、`/learning/{card}` |
 | 人格 | `/persona`、`/persona/approve/{trait_id}`、`/persona/rollback`、`/persona/traits` |
 | 表情包 | `/stickers`、`/stickers/{digest}/approve`、`/stickers/{digest}/reject` |

@@ -54,6 +54,12 @@ node --check web/static/chat.js
 node --check web/static/login.js
 ```
 
+## CI (`.github/workflows/`)
+
+- `test.yml` runs on Python 3.11/3.12/3.13/3.14: `ruff check .`, `pytest tests/ -v`, import smoke checks, and on 3.14 a wheel build + wheel-content/README-independent packaging assertions (`tests/test_packaging.py` also enforces requirements/pyproject/version sync). Run these locally before pushing.
+- The same workflow has a `postgres` job (postgres:16 service, `TEST_POSTGRES_URL`) for `tests/test_postgres_integration.py`, and a `container` job that validates `docker compose config`, builds the image, and asserts the runtime is non-root.
+- `lint.yml` is intentionally non-blocking (`continue-on-error: true`); the `test.yml` static check is the real gate.
+
 ## Architecture
 
 ### Message Flow
@@ -109,6 +115,10 @@ Normal and streaming messages are serialized by `UnifiedMessage.session_key` thr
 
 All pipeline stage calls use `Pipeline.run_stage(stage_name, ctx)` (public API, not private attrs).
 
+### Prompt assembly (`core/prompt_builder.py`, `core/context_assembler.py`)
+
+`_prepare_chat` builds the prompt through `PromptBuilder`, which combines character/style/memory into a system prompt and delegates history packing to `ContextAssembler` when one is configured (`context.enabled`). `ContextAssembler` never includes the full transcript: it adds context in priority order under `context.max_prompt_tokens` and never trims the fixed system prompt or the newest user message. Token counts come from `llm/token_counter.py`; history image blocks are bounded by `media.history_image_window`. `Engine` accepts `prompt_builder`/`context_assembler` via `**deps`.
+
 ### Persistence (`database/`)
 
 - `db.py` — async SQLAlchemy engine/session factory; `resolve_database()` picks SQLite (`persistence.db_path`) or PostgreSQL (`persistence.database_url` / `CHATBOT_DATABASE_URL`).
@@ -152,8 +162,11 @@ Built-in: `WebSearchPlugin` — Bing HTML search with DuckDuckGo fallback (`util
 
 ### Characters, Styles & Groups
 
-- `CharacterManager` (`characters/manager.py`) treats **Markdown cards in `characters/roles/*.md` as canonical**: YAML front matter holds metadata (`name/description/greeting/rules/examples/personality`), the body is the persona prompt. Same-named legacy YAML cards in `characters/cards/` are still loaded as a fallback; `migrate_legacy_cards()` converts them without overwriting existing `.md` files.
-- `CharacterCard.get_system_prompt()` interpolates `{{name}}/{{description}}/{{skills}}/{{rules}}`; if the body has no `{{rules}}` slot, rules are appended. Keep tool/protocol instructions out of persona bodies.
+- `CharacterManager` (`characters/manager.py`) treats **Markdown cards in `characters/roles/*.md` as canonical**: YAML front matter holds metadata (`name/description/greeting/rules/examples/personality`, plus optional `scenario/tags/alternate_greetings/lorebook/post_history_instructions`), the body is the persona prompt. Same-named legacy YAML cards in `characters/cards/` are still loaded as a fallback; `migrate_legacy_cards()` converts them without overwriting existing `.md` files. The built-in YAML fallbacks are mirrored from the Markdown cards.
+- `CharacterCard.get_system_prompt()` interpolates `{{name}}/{{description}}/{{skills}}/{{rules}}`; if the body has no `{{rules}}` slot, rules are appended. `scenario` and `post_history_instructions` are appended after the body. Keep tool/protocol instructions out of persona bodies.
+- `characters/codec.py` converts Character Card V2/V3 JSON/PNG cards (PNG `chara` text chunk) to/from the Markdown card model; `CharacterManager.import_card()/export_card()` expose it, and the Web API routes `/api/v1/cards/import` (raw JSON or PNG body, max 5 MB) and `/api/v1/cards/{name}/export?format=v2|png` back it.
+- `characters/lorebook.py` selects keyword-triggered `lorebook` entries (CJK substring, ASCII word-boundary, optional secondary keys, constant entries, priority + char budget). `Engine._prepare_chat` passes the selected block to `PromptBuilder` as `lore_text`; it is never part of `get_system_prompt()` so it stays out of static prompts.
+- `core/persona_switch.py` is a deterministic natural-language switch agent (no LLM call): private messages like “切换到猫娘 / 换成人设学姐 / 扮演御姐” switch `session.character_card`; group messages do the same through `GroupManager` only for bot/group admins. `Engine._maybe_switch_persona` runs after commands/reminders and before chat; it accepts either the card key or the display name. The regex is intentionally narrow (negations, long messages, and “用猫娘的语气” do not trigger) and is covered by `tests/test_persona_switch.py`.
 - Card names are validated before being used as file names (path-traversal guard) — extend `validate_card_name` rather than bypassing it.
 - `StyleEngine` (`styles/engine.py`) loads presets from `styles/presets.yaml`.
 - Roles/cards and presets are package data (`pyproject.toml`); adding one is a data-file change, not a code change.
@@ -274,7 +287,7 @@ Deployment-isolation envs: `COMPOSE_PROJECT_NAME`, `CHATBOT_CONTAINER_PREFIX`, `
 - `/api/v1/health` — liveness; `/api/v1/health/ready` — engine + persistence, plus media/sticker directory probes when those subsystems are enabled.
 - `/api/v1/metrics` — authenticated runtime/engine/persistence snapshot, including `runtime.domain` counters (`media_attachments`, `media_fetch_failed`, `stickers_sent`, `voice_*`, `outbound_*`, `outbound_blocked`). The collector is `observability/metrics.py` (`RuntimeMetrics`), fed by HTTP/WebSocket middleware and platform calls.
 - Persona/sticker/usage admin APIs: `/api/v1/persona*`, `/api/v1/stickers*`, `/api/v1/usage`. They back the `/persona`, `/stickers`, `/usage` admin pages and are protected by the normal Web token.
-- `POST /api/v1/cards` rejects an existing name with 409; `PUT /api/v1/cards/{name}` backs the current card up under `characters/roles/.backups/` before writing. `/api/v1/logs` reads only the tail in a worker thread.
+- `POST /api/v1/cards` rejects an existing name with 409; `PUT /api/v1/cards/{name}` backs the current card up under `characters/roles/.backups/` before writing and preserves V2 fields (`scenario/lorebook/...`) it does not edit. `/api/v1/cards/import` accepts a raw JSON or PNG card body; `/api/v1/cards/{name}/export?format=v2|png` returns the ecosystem format. `/api/v1/logs` reads only the tail in a worker thread.
 - `web/routes/` splits `api.py`, `auth.py`, `chat.py`, `pages.py`, `ws.py`; `web/idempotency.py` implements WebSocket `request_id` coalescing/replay (see `/ws/chat`).
 - OpenAPI exposes only v1 paths with stable operation IDs and typed response schemas. The CDN-backed docs UI is disabled; use authenticated `/openapi.json`.
 - HTTP responses carry `X-Request-ID`; HTTP and WebSocket activity feeds `RuntimeMetrics`.
@@ -285,12 +298,14 @@ Deployment-isolation envs: `COMPOSE_PROJECT_NAME`, `CHATBOT_CONTAINER_PREFIX`, `
 
 ### Admin Agent (`core/admin_agent.py`, `scripts/admin_executor.py`)
 
-Admin-only natural-language operator triggered by messages starting with `admin_agent.trigger_prefix` (default `#`). Engine intercepts it before normal chat only for `security.admin_users`.
+Admin-only natural-language operator triggered by messages starting with `admin_agent.trigger_prefix` (default `#`). Engine intercepts it before normal chat only for `security.admin_users`. The deployment config (edited in place on the server, not committed) enables `admin_agent` and lists the operator in `security.admin_users`.
+
+Private admin messages that match `core/admin_direct.py` action patterns (nickname/signature/status/friends/groups/group card/persona content/service/file/command, etc.) are routed to `AdminAgent` **without** `#`. Questions (“怎么改昵称”) and negations are excluded; dangerous actions still require the confirmation code, and “确认 …/取消” replies are forwarded while a confirmation is pending.
 
 - Safe actions run immediately: `list_cards`, `create_card`, `update_card`, `activate_card`, `set_avatar`, `set_nickname`, `set_signature`, `set_online_status`, `send_like`, `list_friends`, `list_groups`, `group_members`, `set_group_card`, `set_friend_remark`, `add_reminder`, `list_reminders`, `delete_reminder`, `add_persona_trait`, `reply`.
-- Dangerous actions require a short-lived confirmation code: `delete_card`, `set_config`, `service_restart`, `service_rebuild`, `service_migrate`, `write_file`, `run_command`, `send_message`, `send_file`, `post_qzone`, `delete_qzone`, `set_group_name`, `set_group_portrait`, `group_ban`, `group_kick`, `group_whole_ban`, `group_admin`, `group_notice`.
+- Dangerous actions normally require a short-lived confirmation code: `delete_card`, `set_config`, `service_restart`, `service_rebuild`, `service_migrate`, `write_file`, `run_command`, `send_message`, `send_file`, `post_qzone`, `delete_qzone`, `set_group_name`, `set_group_portrait`, `group_ban`, `group_kick`, `group_whole_ban`, `group_admin`, `group_notice`. The deployment config sets `admin_agent.require_confirmation: false` for the listed owner, so these execute immediately; the host executor audit log, full-mode rate limit, and `data/admin-executor.disabled` kill switch remain the safeguards.
 - QQ profile, Qzone, friend/group actions call NapCat's OneBot extensions through `Engine.call_qq_action`; outgoing text goes through `Engine.send_qq_text`. Avatar and Qzone images are restricted to files inside the shared media directory or `file://`/`http(s)://`/`base64://` URIs.
-- Admins can also send an image with an "设为头像" caption in private chat to update the avatar without a `#` command; `/avatar` with an attached image does the same.
+- Admins can also send an image with a caption containing “头像” (e.g. “换成这个头像 / 设成头像”) in private chat to update the avatar without a `#` command; `/avatar` with an attached image does the same. If none of `设为/设置/设置成/设成/换成/改成/换/改/当作/作为/做/当` matches, the message is treated as normal chat. `QQPlatform.set_avatar` retries with a compressed `base64://` payload if NapCat cannot read the shared-media path.
 - Card changes write canonical `characters/roles/*.md` and back up the previous file under `characters/roles/.backups/`.
 - Config changes are whitelist-checked, validated through `AppConfig`, written by the host executor with a backup, and require a restart to take effect.
 - Server/service/file actions go through `scripts/admin_executor.py`, a **host-side systemd service** listening on `data/admin.sock` (root-owned, group `CHATBOT_GID`, mode 660). It authenticates with `data/admin-executor.token` / `CHATBOT_ADMIN_EXECUTOR_TOKEN`. `ADMIN_EXECUTOR_MODE=safe` (default) exposes only status/logs/restart/rebuild/migrate/syntax-check, path-restricted read/write (never `.env`, `data/`, `.git`), and an allowlisted command set. `ADMIN_EXECUTOR_MODE=full` instead runs `bash -lc` as root with a 30 commands/min cap, 5–120 s timeout and audit log; the kill switch is `data/admin-executor.disabled`. Treat full mode as root access.
@@ -336,15 +351,17 @@ Admin-only natural-language operator triggered by messages starting with `admin_
 
 ### Design docs & planned work
 
-- `docs/api.md` — Web API contract and versioning; `docs/persistence.md` — SQLite/PostgreSQL, migrations, scaling, rollback; `docs/durable-execution.md` — inbound/outbound durable queue design; `docs/architecture-plan.md` — current baseline and P0/P1 status; `docs/reference-architecture.md`, `docs/platform-roadmap.md` — longer-term direction.
+- `docs/api.md` — Web API contract and versioning; `docs/persistence.md` — SQLite/PostgreSQL, migrations, scaling, rollback; `docs/media.md` — media/humanlike reply chain; `docs/voice.md` — opt-in voice deployment; `docs/durable-execution.md` — inbound/outbound durable queue design; `docs/architecture-plan.md` — current baseline and P0/P1 status; `docs/reference-architecture.md`, `docs/platform-roadmap.md` — longer-term direction.
 - `docs/superpowers/specs/` — dated design specs, including earlier v2/optimization and comprehensive-improvement designs.
 - `docs/superpowers/specs/2026-10-23-qq-humanlike-bot-design.md` — design for QQ private-chat humanlike features: DeepSeek vision, sticker library/auto-collect, voice ASR/TTS, segmented/quote replies, bounded context, and versioned persona evolution. It is now implemented; the module map above is authoritative where the spec and code differ (segment parsing, archive cursors, PostgreSQL DDL, voice opt-in).
 - That spec narrows the humanlike feature work to QQ private chat. Existing Telegram support remains, but is not being extended; WeChat is not an active target.
 
 ## Key Conventions
 
-- All tests: `pytest` + `pytest-asyncio`. `asyncio_mode = auto` in pyproject.toml (duplicated in `pytest.ini`).
+- All tests: `pytest` + `pytest-asyncio`. `asyncio_mode = auto` in pyproject.toml (duplicated in `pytest.ini`). `tests/conftest.py` provides `default_config` / `config_with_key` fixtures; ruff ignores `F401`/`F841` under `tests/**`.
 - Lint gate: `python -m ruff check .` — only `E9` + `F` are enforced, line length 120, double quotes.
+- `requires-python >=3.11`; the Docker image pins 3.12; CI tests 3.11–3.14.
+- `utils/version.py` is the single runtime version source and must match `pyproject.toml`; `tests/test_packaging.py` also keeps `requirements.txt` and pyproject dependencies in sync.
 - `from __future__ import annotations` in all source files (PEP 604).
 - Chinese UI strings throughout.
 - LLM calls return friendly error strings, never raise.

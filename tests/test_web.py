@@ -1,6 +1,8 @@
 """Web面板测试"""
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from urllib.parse import quote
 
 import pytest
 from httpx import AsyncClient, ASGITransport
@@ -160,6 +162,55 @@ async def test_card_detail_returns_unrendered_prompt_for_lossless_editing(client
 
 
 @pytest.mark.asyncio
+async def test_card_import_and_export_endpoints(client, tmp_path):
+    from characters.manager import CharacterManager
+
+    manager = CharacterManager(str(tmp_path / "cards"), str(tmp_path / "roles"))
+    engine = SimpleNamespace(
+        config=SimpleNamespace(web=SimpleNamespace(auth_token="")),
+        character_manager=manager,
+    )
+    payload = {
+        "spec": "chara_card_v2",
+        "spec_version": "2.0",
+        "data": {"name": "导入角色", "first_mes": "你好", "description": "来自酒馆"},
+    }
+    set_engine(engine)
+    try:
+        imported = await client.post(
+            "/api/v1/cards/import",
+            content=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        assert imported.status_code == 200
+        assert imported.json()["name"] == "导入角色"
+
+        card_path = f"/api/v1/cards/{quote('导入角色')}"
+        detail = await client.get(card_path)
+        assert detail.status_code == 200
+        assert detail.json()["greeting"] == "你好"
+
+        exported = await client.get(f"{card_path}/export")
+        assert exported.headers["content-type"].startswith("application/json")
+        assert exported.json()["data"]["first_mes"] == "你好"
+
+        png = await client.get(f"{card_path}/export?format=png")
+        assert png.headers["content-type"] == "image/png"
+        assert png.content.startswith(b"\x89PNG")
+
+        duplicate = await client.post(
+            "/api/v1/cards/import",
+            content=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        )
+        assert duplicate.status_code == 409
+
+        invalid = await client.post("/api/v1/cards/import", content=b"not a card")
+        assert invalid.status_code == 400
+    finally:
+        set_engine(None)
+
+
+@pytest.mark.asyncio
 async def test_styles_endpoint(client):
     resp = await client.get("/api/styles")
     assert resp.status_code == 200
@@ -313,7 +364,9 @@ def test_openapi_publishes_complete_v1_contract_only():
         "/api/v1/auth/login",
         "/api/v1/auth/logout",
         "/api/v1/cards",
+        "/api/v1/cards/import",
         "/api/v1/cards/{card_name}",
+        "/api/v1/cards/{card_name}/export",
         "/api/v1/chat",
         "/api/v1/health",
         "/api/v1/health/ready",

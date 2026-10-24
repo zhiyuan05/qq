@@ -118,6 +118,24 @@ async def test_dangerous_action_requires_confirmation(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_dangerous_action_can_skip_confirmation(tmp_path):
+    engine = _FakeEngine(tmp_path)
+    engine.llm = _FakeLLM(
+        {
+            "action": "write_file",
+            "args": {"path": "core/example.py", "content": "print('x')\n"},
+        }
+    )
+    agent = AdminAgent(engine, AdminAgentConfig(enabled=True, require_confirmation=False))
+    agent.executor = _FakeExecutor()
+
+    result = await agent.handle(_message("# 写一个文件"))
+
+    assert result == "ok"
+    assert agent.executor.calls == [("write_file", {"path": "core/example.py", "content": "print('x')\n"})]
+
+
+@pytest.mark.asyncio
 async def test_admin_agent_adds_persona_trait(tmp_path):
     db_path = str(tmp_path / "persona.db")
     await init_db(db_path)

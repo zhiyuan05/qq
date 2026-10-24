@@ -37,8 +37,10 @@ from core.reminders import (
 )
 from core.admin_agent import AdminAgent
 from core.command_parser import ParsedCommand
+from core.admin_direct import AdminDirectAgent
 from core.commands import CommandHandler
 from core.group_manager import GroupManager
+from core.persona_switch import PersonaSwitchAgent
 from core.pipeline import Pipeline, PipelineContext
 from core.middleware.rate_limit import RateLimitMiddleware
 from core.middleware.filter import FilterMiddleware
@@ -51,6 +53,7 @@ from database.archive import ConversationArchiveStore
 from database.session_coordinator import SessionCoordinator, create_session_coordinator
 from database.session_store import SessionConflictError, create_session_store
 from characters.manager import CharacterManager
+from characters.lorebook import format_lorebook, select_lorebook_entries
 from styles.engine import StyleEngine
 from llm.client import ChatClient, InstrumentedLLMClient, LLMClient
 from llm.token_counter import count_tokens
@@ -69,7 +72,7 @@ from security.content_filter import ContentFilter
 logger = setup_logger("engine")
 
 _AVATAR_REQUEST = re.compile(
-    r"(设为|设置|换成|改成|当作|作为|做|当).{0,4}头像|头像.{0,4}(换成|改成|设为|设置)"
+    r"(设为|设置|设置成|设成|换成|改成|换|改|当作|作为|做|当).{0,4}头像|头像.{0,4}(换成|改成|设为|设置|设置成|设成|换|改)"
 )
 
 
@@ -251,6 +254,8 @@ class Engine:
         self._persistence_conflicts = 0
         self._init_pipeline(config)
         self.command_handler: CommandHandler = deps.get("command_handler") or CommandHandler(self)
+        self.persona_switcher: PersonaSwitchAgent | None = deps.get("persona_switcher") or PersonaSwitchAgent()
+        self.admin_direct: AdminDirectAgent | None = deps.get("admin_direct") or AdminDirectAgent()
 
     @property
     def platforms(self) -> tuple[BasePlatform, ...]:
@@ -1011,6 +1016,13 @@ class Engine:
             await self._commit_response(
                 session, final, msg.session_key if session is None else None, commit=commit
             )
+        elif (persona_reply := await self._maybe_switch_persona(msg)) is not None:
+            ctx.response = persona_reply
+            final = await self._finish_response_pipeline(ctx, msg)
+            session = self.session_manager.get(msg.session_key)
+            await self._commit_response(
+                session, final, msg.session_key if session is None else None, commit=commit
+            )
         else:
             final = await self._handle_chat(msg, ctx=ctx, commit=commit, plan_mode=plan_mode)
         self.router.mark_processed(msg)
@@ -1055,6 +1067,18 @@ class Engine:
 
         if parsed and parsed.is_command:
             ctx.response = await self._handle_command(msg, parsed)
+            final = await self._finish_response_pipeline(ctx, msg)
+            session = self.session_manager.get(msg.session_key)
+            await self._commit_response(
+                session, final, msg.session_key if session is None else None, commit=commit
+            )
+            self.router.mark_processed(msg)
+            yield {"type": "done", "content": final or "", "replace": True}
+            return
+
+        persona_reply = await self._maybe_switch_persona(msg)
+        if persona_reply is not None:
+            ctx.response = persona_reply
             final = await self._finish_response_pipeline(ctx, msg)
             session = self.session_manager.get(msg.session_key)
             await self._commit_response(
@@ -1295,6 +1319,13 @@ class Engine:
         character = self.character_manager.get(char_name) or self.character_manager.get_default()
         style = self.style_engine.get(style_name) or self.style_engine.get_default()
 
+        lore_text = ""
+        if character.lorebook:
+            try:
+                lore_text = format_lorebook(select_lorebook_entries(character.lorebook, msg.content))
+            except Exception as exc:
+                logger.debug("世界书选择失败 (%s)", type(exc).__name__)
+
         memory_results = []
         if self.long_term_memory:
             memory_results = await asyncio.to_thread(
@@ -1342,6 +1373,7 @@ class Engine:
                 global_traits=global_traits,
                 user_id=msg.principal_key,
                 sticker_tags=sticker_tags,
+                lore_text=lore_text,
             )
         else:
             history = session.get_context_messages(self.config.memory.short_term.max_messages)
@@ -1353,6 +1385,7 @@ class Engine:
                 sticker_tags=sticker_tags,
                 memory_results=memory_results,
                 user_id=msg.principal_key,
+                lore_text=lore_text,
             )
 
         return session, character, style, is_new_session, messages
@@ -1466,6 +1499,15 @@ class Engine:
             )
             if image_path:
                 return await self.set_qq_avatar(image_path)
+            return "要设置头像，请把图片和「设为头像」放在同一条消息里发送，或使用 /avatar。"
+        if self.admin_agent is not None and self.router.is_admin(msg.user_id, msg.platform.value) and msg.group_id is None:
+            direct_action = self.admin_direct is not None and self.admin_direct.matches(msg.content)
+            confirmation = (
+                self.admin_agent.has_pending(msg.principal_key)
+                and msg.content.strip().startswith(("确认", "取消"))
+            )
+            if direct_action or confirmation:
+                return await self.admin_agent.handle(msg)
         if self.usage_ledger is not None:
             try:
                 if await self.usage_ledger.over_budget():
@@ -1499,8 +1541,9 @@ class Engine:
                     self._strip_image_blocks(messages),
                     model=self.config.llm.model,
                 )
-        if is_new_session and character.greeting:
-            response = f"{character.greeting}\n\n{response}"
+        greeting = character.pick_greeting() if is_new_session else ""
+        if greeting:
+            response = f"{greeting}\n\n{response}"
         if ctx is None:
             ctx = PipelineContext(user_id=msg.principal_key, content=msg.content, platform=msg.platform.value)
         ctx.response = response
@@ -1530,8 +1573,9 @@ class Engine:
 
         llm = self._get_llm()
         full_response = ""
-        if is_new_session and character.greeting:
-            full_response = f"{character.greeting}\n\n"
+        greeting = character.pick_greeting() if is_new_session else ""
+        if greeting:
+            full_response = f"{greeting}\n\n"
             yield full_response
         async for chunk in llm.chat_stream(messages):
             full_response += chunk
@@ -1544,6 +1588,50 @@ class Engine:
         ctx.response = final
         await self._record_usage(msg, session, llm, final)
         await self._finish_chat(msg, session, final, is_new_session, commit=commit)
+
+    async def _maybe_switch_persona(self, msg: UnifiedMessage) -> str | None:
+        """私聊直接切换人设；群聊只允许管理员改群设置。"""
+
+        if self.persona_switcher is None:
+            return None
+
+        aliases: dict[str, str] = {}
+        for key in self.character_manager.list_cards():
+            aliases[key] = key
+            card = self.character_manager.get(key)
+            if card and card.name:
+                aliases.setdefault(card.name, key)
+
+        target = self.persona_switcher.detect(msg.content, aliases)
+        if not target:
+            return None
+        card = self.character_manager.get(target)
+        if card is None:
+            return None
+
+        if msg.group_id:
+            allowed = self.router.is_admin(msg.user_id, msg.platform.value) or self.group_manager.is_admin(
+                msg.platform.value, msg.group_id, msg.user_id
+            )
+            if not allowed:
+                return None
+            group = self.group_manager.get_or_create(msg.platform.value, msg.group_id)
+            if group.character_card == target:
+                return f"本群已经使用「{card.name}」了。"
+            group.character_card = target
+            self.group_manager.save()
+            return f"本群人设已切换到「{card.name}」。"
+
+        session = self.session_manager.get_or_create(
+            msg,
+            default_character=self.config.bot.default_character,
+            default_style=self.config.bot.default_style,
+        )
+        if session.character_card == target:
+            return f"现在就是「{card.name}」啦。"
+        session.character_card = target
+        greeting = card.pick_greeting()
+        return f"好，切换到「{card.name}」。\n\n{greeting}".strip()
 
     async def _handle_command(self, msg: UnifiedMessage, parsed: ParsedCommand) -> str:
         session = self.session_manager.get_or_create(

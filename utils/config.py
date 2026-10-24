@@ -467,6 +467,7 @@ class AdminAgentConfig(StrictConfigModel):
     executor_socket: str = "data/admin.sock"
     executor_token: str = ""
     confirmation_ttl_seconds: int = Field(default=120, ge=30, le=600)
+    require_confirmation: bool = True
 
 
 class UsageConfig(StrictConfigModel):

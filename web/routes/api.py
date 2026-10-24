@@ -6,8 +6,9 @@ import time
 from collections import deque
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -227,7 +228,57 @@ async def api_card_detail(card_name: str):
         # 管理 API 返回可无损编辑的原始配置；运行时渲染后的提示词属于 Engine 内部细节。
         "system_prompt": card.system_prompt,
         "greeting": card.greeting,
+        "scenario": getattr(card, "scenario", ""),
+        "tags": getattr(card, "tags", []),
+        "alternate_greetings": getattr(card, "alternate_greetings", []),
+        "lorebook": getattr(card, "lorebook", []),
+        "post_history_instructions": getattr(card, "post_history_instructions", ""),
     }
+
+
+@api_router.post("/cards/import", response_model=MutationResponse)
+async def api_import_card(
+    request: Request,
+    name: str | None = Query(default=None, max_length=64),
+    overwrite: bool = Query(default=False),
+):
+    engine = web_app.get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="引擎未就绪")
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=400, detail="请求体为空")
+    if len(raw) > 5_000_000:
+        raise HTTPException(status_code=413, detail="角色卡文件不能超过 5 MB")
+    try:
+        imported = engine.character_manager.import_card(raw, name=name, overwrite=overwrite)
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail="角色卡已存在，使用 overwrite=true 覆盖")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "name": imported}
+
+
+@api_router.get("/cards/{card_name}/export")
+async def api_export_card(
+    card_name: str,
+    format: Literal["v2", "png"] = Query(default="v2"),
+):
+    engine = web_app.get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="引擎未就绪")
+    if not engine.character_manager.get(card_name):
+        raise HTTPException(status_code=404, detail="角色卡不存在")
+    try:
+        payload = engine.character_manager.export_card(card_name, fmt=format)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    suffix = "png" if format == "png" else "json"
+    filename = f"{quote(card_name)}.{suffix}"
+    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
+    if format == "png":
+        return Response(content=payload, media_type="image/png", headers=headers)
+    return JSONResponse(content=payload, headers=headers)
 
 
 @api_router.get("/styles", response_model=list[str])
@@ -277,6 +328,15 @@ async def api_update_card(card_name: str, data: CardPayload):
         "greeting": data.greeting,
         "examples": existing.examples,
         "learned_traits": existing.learned_traits,
+        "scenario": getattr(existing, "scenario", ""),
+        "alternate_greetings": getattr(existing, "alternate_greetings", []),
+        "lorebook": getattr(existing, "lorebook", []),
+        "post_history_instructions": getattr(existing, "post_history_instructions", ""),
+        "tags": getattr(existing, "tags", []),
+        "creator": getattr(existing, "creator", ""),
+        "character_version": getattr(existing, "character_version", ""),
+        "creator_notes": getattr(existing, "creator_notes", ""),
+        "extensions": getattr(existing, "extensions", {}),
     })
     engine.character_manager.backup_card(card_name)
     engine.character_manager.save(card_name, updated)

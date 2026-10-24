@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """角色卡管理器：Markdown 人格卡为主，兼容旧 YAML 卡。"""
 import os
+import random
 import re
 import uuid
 from pathlib import Path
@@ -37,16 +38,45 @@ class CharacterCard:
         self.greeting: str = data.get("greeting", "")
         self.examples: List[dict] = data.get("examples", [])
         self.learned_traits: dict = data.get("learned_traits", {})
+        self.scenario: str = str(data.get("scenario") or "")
+        self.alternate_greetings: List[str] = [
+            str(item) for item in (data.get("alternate_greetings") or []) if str(item).strip()
+        ]
+        self.lorebook: List[dict] = [
+            entry for entry in (data.get("lorebook") or []) if isinstance(entry, dict)
+        ]
+        self.post_history_instructions: str = str(data.get("post_history_instructions") or "")
+        self.tags: List[str] = [str(item) for item in (data.get("tags") or []) if str(item).strip()]
+        self.creator: str = str(data.get("creator") or "")
+        self.character_version: str = str(data.get("character_version") or "")
+        self.creator_notes: str = str(data.get("creator_notes") or "")
+        self.extensions: dict = data.get("extensions") if isinstance(data.get("extensions"), dict) else {}
+
+    def pick_greeting(self) -> str:
+        """新会话开场白；有备用问候时随机选一条。"""
+
+        choices = [str(item) for item in [self.greeting, *self.alternate_greetings] if str(item).strip()]
+        return random.choice(choices) if choices else ""
 
     def get_system_prompt(self) -> str:
         rules_text = "\n".join(f"- {rule}" for rule in self.rules)
         prompt = self.system_prompt.replace("{{name}}", self.name)
         prompt = prompt.replace("{{description}}", self.description)
         prompt = prompt.replace("{{skills}}", self.skills)
+        # SillyTavern 卡常用 {{char}} / {{user}}，导入后继续可用。
+        prompt = prompt.replace("{{char}}", self.name)
+        prompt = prompt.replace("{{user}}", "用户")
         has_rules_slot = "{{rules}}" in self.system_prompt
         prompt = prompt.replace("{{rules}}", rules_text)
         if self.rules and not has_rules_slot:
             prompt += f"\n\n规则:\n{rules_text}"
+
+        if self.scenario and self.scenario not in prompt:
+            prompt += f"\n\n当前场景：{self.scenario}"
+
+        if self.post_history_instructions.strip():
+            extra = self.post_history_instructions.replace("{{char}}", self.name).replace("{{user}}", "用户")
+            prompt += f"\n\n额外要求:\n{extra.strip()}"
 
         if self.learned_traits:
             prompt += "\n\n根据以往交流经验:\n"
@@ -68,6 +98,15 @@ class CharacterCard:
             "greeting": self.greeting,
             "examples": self.examples,
             "learned_traits": self.learned_traits,
+            "scenario": self.scenario,
+            "alternate_greetings": self.alternate_greetings,
+            "lorebook": self.lorebook,
+            "post_history_instructions": self.post_history_instructions,
+            "tags": self.tags,
+            "creator": self.creator,
+            "character_version": self.character_version,
+            "creator_notes": self.creator_notes,
+            "extensions": self.extensions,
         }
 
     def to_front_matter(self) -> dict:
@@ -83,6 +122,24 @@ class CharacterCard:
             meta["skills"] = self.skills
         if self.learned_traits:
             meta["learned_traits"] = self.learned_traits
+        if self.scenario:
+            meta["scenario"] = self.scenario
+        if self.alternate_greetings:
+            meta["alternate_greetings"] = self.alternate_greetings
+        if self.lorebook:
+            meta["lorebook"] = self.lorebook
+        if self.post_history_instructions:
+            meta["post_history_instructions"] = self.post_history_instructions
+        if self.tags:
+            meta["tags"] = self.tags
+        if self.creator:
+            meta["creator"] = self.creator
+        if self.character_version:
+            meta["character_version"] = self.character_version
+        if self.creator_notes:
+            meta["creator_notes"] = self.creator_notes
+        if self.extensions:
+            meta["extensions"] = self.extensions
         return meta
 
     def to_markdown(self) -> str:
@@ -170,6 +227,42 @@ class CharacterManager:
             os.replace(temporary, path)
         finally:
             temporary.unlink(missing_ok=True)
+
+    def import_card(
+        self,
+        raw: bytes | str,
+        *,
+        name: str | None = None,
+        overwrite: bool = False,
+    ) -> str:
+        """导入 JSON/PNG 角色卡，返回落盘使用的卡名。"""
+
+        from characters.codec import decode_card
+
+        data = decode_card(raw)
+        card = CharacterCard(data)
+        target_name = validate_card_name(name or card.name)
+        existing = self.get(target_name)
+        if existing and not overwrite:
+            raise FileExistsError(target_name)
+        if existing:
+            self.backup_card(target_name)
+        self.save(target_name, card)
+        return target_name
+
+    def export_card(self, name: str, *, fmt: str = "v2", image_bytes: bytes | None = None) -> dict | bytes:
+        """导出为 Character Card V2（dict）或 PNG（bytes）。"""
+
+        card = self.get(name)
+        if not card:
+            raise KeyError(name)
+        from characters.codec import encode_png, encode_v2
+
+        if fmt in {"v2", "json"}:
+            return encode_v2(card)
+        if fmt == "png":
+            return encode_png(card, image_bytes)
+        raise ValueError("导出格式仅支持 v2 或 png")
 
     def backup_card(self, name: str) -> str:
         """Copy the current Markdown/YAML card into roles/.backups before mutation."""

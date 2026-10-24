@@ -37,6 +37,23 @@ async def test_build_basic_prompt():
 
 
 @pytest.mark.asyncio
+async def test_build_injects_lore_text():
+    builder = PromptBuilder()
+    card = CharacterCard({"name": "助手", "system_prompt": "你是{{name}}"})
+    style = Style({"name": "casual", "prompt_modifier": ""})
+
+    messages = await builder.build(
+        card,
+        style,
+        "外面打雷了",
+        [],
+        lore_text="相关设定：\n- 助手怕打雷。",
+    )
+
+    assert "助手怕打雷。" in messages[0]["content"]
+
+
+@pytest.mark.asyncio
 async def test_build_with_memory():
     builder = PromptBuilder()
     card = CharacterCard({"name": "助手", "system_prompt": "你是{{name}}"})

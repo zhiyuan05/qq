@@ -44,6 +44,27 @@ from utils.logger import setup_logger
 logger = setup_logger("qq")
 
 
+def _avatar_base64(data: bytes) -> str:
+    """Compress an avatar before base64 fallback so the OneBot payload stays small."""
+
+    from io import BytesIO
+
+    from PIL import Image
+
+    try:
+        image = Image.open(BytesIO(data))
+        image.load()
+        if image.mode not in {"RGB", "RGBA"}:
+            image = image.convert("RGB")
+        image.thumbnail((512, 512))
+        buffer = BytesIO()
+        image.convert("RGB").save(buffer, format="JPEG", quality=88)
+        data = buffer.getvalue()
+    except Exception:
+        pass
+    return base64.b64encode(data).decode("ascii")
+
+
 class QQPlatform(BasePlatform):
     """Bidirectional OneBot v11 client with a single WebSocket receive owner."""
 
@@ -819,7 +840,11 @@ class QQPlatform(BasePlatform):
             raise PlatformDeliveryError("头像图片超过 5MB", code="too_large")
         if not sniff_image_mime(data):
             raise PlatformDeliveryError("文件不是支持的图片格式", code="invalid_format")
-        await self._call_action("set_qq_avatar", {"file": str(resolved)})
+        try:
+            await self._call_action("set_qq_avatar", {"file": str(resolved)})
+        except PlatformDeliveryError as exc:
+            logger.warning("set_qq_avatar 本地路径失败，改用 base64 (%s)", exc)
+            await self._call_action("set_qq_avatar", {"file": f"base64://{_avatar_base64(data)}"})
 
     async def _call_action(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
         websocket = self._websocket

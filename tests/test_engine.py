@@ -1,4 +1,6 @@
 """核心引擎测试"""
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import AsyncMock, patch
 from core.engine import Engine
@@ -64,6 +66,66 @@ async def test_engine_chat_calls_llm(engine):
         result = await engine.process_message(_make_msg("你好"))
         assert "测试回复" in result
         mock_llm.chat.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_engine_natural_persona_switch_skips_llm(engine):
+    with patch.object(engine, "_get_llm") as mock_get_llm:
+        result = await engine.process_message(_make_msg("切换到猫娘"))
+
+        mock_get_llm.assert_not_called()
+
+    assert "猫娘" in result
+    session = engine.session_manager.get("wechat:u1")
+    assert session is not None
+    assert session.character_card == "猫娘"
+
+
+@pytest.mark.asyncio
+async def test_engine_group_persona_switch_requires_admin(engine):
+    engine.router.admin_users = ["qq:owner"]
+    owner = UnifiedMessage(platform=Platform.QQ, user_id="owner", group_id="g1", content="切换到猫娘")
+
+    result = await engine.process_message(owner)
+
+    assert "本群人设已切换到「猫娘」" in result
+    group = engine.group_manager.get("qq", "g1")
+    assert group is not None
+    assert group.character_card == "猫娘"
+
+
+@pytest.mark.asyncio
+async def test_engine_admin_direct_action_skips_prefix(engine):
+    fake_agent = SimpleNamespace(
+        prefix="#",
+        has_pending=lambda key: False,
+        handle=AsyncMock(return_value="已修改昵称"),
+    )
+    engine.admin_agent = fake_agent
+    engine.router.admin_users = ["qq:owner"]
+    message = UnifiedMessage(
+        platform=Platform.QQ,
+        user_id="owner",
+        content="把昵称改成小明",
+    )
+
+    assert await engine.process_message(message) == "已修改昵称"
+    fake_agent.handle.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_engine_admin_direct_confirmation_is_forwarded(engine):
+    fake_agent = SimpleNamespace(
+        prefix="#",
+        has_pending=lambda key: True,
+        handle=AsyncMock(return_value="已执行"),
+    )
+    engine.admin_agent = fake_agent
+    engine.router.admin_users = ["qq:owner"]
+    message = UnifiedMessage(platform=Platform.QQ, user_id="owner", content="确认 123456")
+
+    assert await engine.process_message(message) == "已执行"
+    fake_agent.handle.assert_awaited_once()
 
 
 @pytest.mark.asyncio

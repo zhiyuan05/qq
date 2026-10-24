@@ -184,6 +184,18 @@ class AdminAgent:
         self.executor = ExecutorClient(config.executor_socket, config.executor_token)
         self._pending: dict[str, tuple[float, str, dict[str, Any]]] = {}
 
+    def has_pending(self, key: str) -> bool:
+        """Whether this identity has an unexpired confirmation waiting."""
+
+        pending = self._pending.get(key)
+        if pending is None:
+            return False
+        expires, _, _ = pending
+        if time.monotonic() > expires:
+            self._pending.pop(key, None)
+            return False
+        return True
+
     async def handle(self, msg: UnifiedMessage) -> str:
         content = msg.content.strip()
         if content.startswith(self.prefix):
@@ -227,7 +239,7 @@ class AdminAgent:
             return "没听懂这个管理请求，请换一种说法，或加上更明确的目标。"
         name = action["action"].strip()
         args = action.get("args") if isinstance(action.get("args"), dict) else {}
-        if name in _DANGEROUS:
+        if name in _DANGEROUS and self.config.require_confirmation:
             stored_args = dict(args)
             if name == "post_qzone" and not stored_args.get("images"):
                 # Attachments are gone by the time the confirmation arrives; keep file URIs now.

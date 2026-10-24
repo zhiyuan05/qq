@@ -71,6 +71,11 @@ class CardDetailResponse(BaseModel):
     rules: list[str]
     system_prompt: str
     greeting: str
+    scenario: str = ""
+    tags: list[str] = Field(default_factory=list)
+    alternate_greetings: list[str] = Field(default_factory=list)
+    lorebook: list[dict[str, Any]] = Field(default_factory=list)
+    post_history_instructions: str = ""
 
 
 class MutationResponse(BaseModel):

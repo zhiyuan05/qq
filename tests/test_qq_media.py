@@ -2,7 +2,8 @@ import pytest
 from PIL import Image
 
 from core.engine import Engine
-from platforms.models import Attachment, MessageType, QuotedMessage
+from platforms.base import PlatformDeliveryError
+from platforms.models import Attachment, MessageType, Platform, QuotedMessage, UnifiedMessage
 from platforms.qq import QQPlatform
 from platforms.qq_segments import MediaRef, parse_message
 
@@ -133,6 +134,78 @@ async def test_set_avatar_uses_local_onebot_action(tmp_path):
     await platform.set_avatar(str(image))
 
     assert calls == [("set_qq_avatar", {"file": str(image.resolve())})]
+
+
+@pytest.mark.asyncio
+async def test_set_avatar_falls_back_to_base64(tmp_path):
+    image = tmp_path / "avatar.png"
+    Image.new("RGB", (64, 64), color=(20, 120, 220)).save(image, format="PNG")
+
+    class _Store:
+        class _Config:
+            enabled = True
+            storage_dir = str(tmp_path)
+
+        config = _Config()
+
+    platform = QQPlatform(_qq_config(), media_store=_Store())
+    calls = []
+
+    async def fake_call(action, params):
+        calls.append((action, params))
+        if len(calls) == 1:
+            raise PlatformDeliveryError("path not readable", code="invalid_path")
+        return {"status": "ok", "retcode": 0}
+
+    platform._call_action = fake_call
+    await platform.set_avatar(str(image))
+
+    assert calls[0][1]["file"] == str(image.resolve())
+    assert calls[1][0] == "set_qq_avatar"
+    assert calls[1][1]["file"].startswith("base64://")
+
+
+@pytest.mark.asyncio
+async def test_engine_updates_avatar_from_private_attached_image():
+    from utils.config import AppConfig
+
+    config = AppConfig()
+    config.security.admin_users = ["qq:owner"]
+    config.admin_agent.enabled = False
+    config.rate_limit.enabled = False
+    config.memory.long_term.enabled = False
+    config.memory.entity.auto_extract = False
+    engine = Engine(config)
+    platform = QQPlatform(_qq_config())
+    seen = []
+
+    async def fake_set_avatar(path):
+        seen.append(path)
+
+    platform.set_avatar = fake_set_avatar
+    engine.register_platform(platform)
+
+    message = UnifiedMessage(
+        platform=Platform.QQ,
+        user_id="owner",
+        content="换成这个头像",
+        attachments=[Attachment(kind=MessageType.IMAGE, path="/tmp/avatar.png", mime="image/png")],
+    )
+
+    assert await engine.process_message(message) == "头像已更新"
+    assert seen == ["/tmp/avatar.png"]
+
+    command = UnifiedMessage(
+        platform=Platform.QQ,
+        user_id="owner",
+        content="/avatar",
+        attachments=[Attachment(kind=MessageType.IMAGE, path="/tmp/avatar.png", mime="image/png")],
+    )
+    assert await engine.process_message(command) == "头像已更新"
+    assert seen == ["/tmp/avatar.png", "/tmp/avatar.png"]
+
+    missing_image = UnifiedMessage(platform=Platform.QQ, user_id="owner", content="把这张图设成头像")
+    assert "请把图片" in await engine.process_message(missing_image)
 
 
 @pytest.mark.asyncio
