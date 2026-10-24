@@ -81,7 +81,7 @@ _AVATAR_REQUEST = re.compile(
 _PROACTIVE_INSTRUCTION = (
     "对方已经有一段时间没说话了。现在以角色身份主动发一条消息：一到两句，可以关心、"
     "分享一件小事、接着上次的话题，或轻轻吐槽；不要提“很久没联系”，不要道歉，"
-    "不要像客服，不要连续追问。只输出消息本身。"
+    "不要像客服，不要连续追问，不要使用 Markdown 或列表。只输出消息本身。"
 )
 
 
@@ -375,6 +375,13 @@ class Engine:
             or self.character_manager.get_default()
         )
         system_content = f"{character.get_system_prompt()}\n\n{time_context()}"
+        extra = str(getattr(character, "post_history_instructions", "") or "").strip()
+        if extra:
+            system_content += "\n\n" + extra.replace("{{char}}", character.name).replace("{{user}}", "用户")
+        if self.config.humanize.style_profile_enabled:
+            style_hint = format_style_hint(session.messages)
+            if style_hint:
+                system_content += f"\n\n{style_hint}"
         if self.relationship_store is not None:
             try:
                 state = await self.relationship_store.load(session.user_id)
