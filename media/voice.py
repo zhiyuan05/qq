@@ -263,6 +263,7 @@ class VoiceService:
             except Exception as exc:
                 logger.warning("ASR 模型加载失败 (%s)", type(exc).__name__)
                 return ""
+        started = time.monotonic()
         try:
             def _run() -> str:
                 segments, _info = self._asr.transcribe(
@@ -279,7 +280,13 @@ class VoiceService:
             return ""
         self._last_used = time.monotonic()
         self.unload_if_idle()
-        return text[: self.config.max_audio_seconds * 10]
+        text = text[: self.config.max_audio_seconds * 10]
+        logger.info(
+            "语音转写完成（%.1fs，%d 字）",
+            time.monotonic() - started,
+            len(text),
+        )
+        return text
 
     def unload_if_idle(self) -> None:
         """Release the ASR model after the configured idle period."""
