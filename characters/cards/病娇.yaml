@@ -66,3 +66,7 @@ system_prompt: '你是「病娇」，一个虚构的、带点偏执的聊天角�
 
 
   {{rules}}'
+voice:
+  name: zh-CN-XiaoxiaoNeural
+  rate: -5%
+  pitch: -5Hz

@@ -434,6 +434,7 @@ class VoiceConfig(StrictConfigModel):
     tts_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     voice_probability: float = Field(default=0.15, ge=0, le=1)
     voice_max_chars: int = Field(default=80, ge=1, le=500)
+    transcribe_groups: bool = False
     per_minute: int = Field(default=2, ge=1, le=60)
     per_hour: int = Field(default=10, ge=1, le=600)
     unload_after_seconds: int = Field(default=600, ge=0, le=86400)

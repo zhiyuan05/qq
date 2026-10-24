@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -16,6 +17,10 @@ from utils.config import MediaConfig, VoiceConfig
 from utils.logger import setup_logger
 
 logger = setup_logger("media.voice")
+
+_VOICE_NAME = re.compile(r"^[A-Za-z]{2,3}-[A-Za-z0-9-]+Neural$")
+_VOICE_RATE = re.compile(r"^[+-]\d{1,3}%$")
+_VOICE_PITCH = re.compile(r"^[+-]\d{1,3}Hz$")
 
 
 class VoiceService:
@@ -48,6 +53,7 @@ class VoiceService:
             import faster_whisper  # noqa: F401
 
             self.available = True
+            logger.info("语音服务可用（ASR: faster_whisper/%s，TTS: edge_tts）", config.asr_model)
         except ImportError:
             logger.warning("语音依赖未安装；语音功能已禁用")
 
@@ -102,17 +108,33 @@ class VoiceService:
             )
         return attachment, transcript
 
-    async def synthesize(self, text: str) -> str | None:
+    async def synthesize(
+        self,
+        text: str,
+        *,
+        voice: str | None = None,
+        rate: str = "+0%",
+        pitch: str = "+0Hz",
+    ) -> str | None:
         if not self.available or not text or self.tts_provider != "edge_tts":
             return None
         from edge_tts import Communicate
+
+        voice_name = voice if _VOICE_NAME.fullmatch(voice or "") else self.config.tts_voice
+        rate_value = rate if _VOICE_RATE.fullmatch(rate or "") else "+0%"
+        pitch_value = pitch if _VOICE_PITCH.fullmatch(pitch or "") else "+0Hz"
 
         target_dir = Path(self.config.tts_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / f"tts-{uuid.uuid4().hex}.mp3"
         try:
             await asyncio.wait_for(
-                Communicate(text, self.config.tts_voice).save(str(target)),
+                Communicate(
+                    text,
+                    voice_name,
+                    rate=rate_value,
+                    pitch=pitch_value,
+                ).save(str(target)),
                 timeout=self.config.tts_timeout_seconds,
             )
         except Exception as exc:

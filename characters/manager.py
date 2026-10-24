@@ -51,6 +51,7 @@ class CharacterCard:
         self.character_version: str = str(data.get("character_version") or "")
         self.creator_notes: str = str(data.get("creator_notes") or "")
         self.extensions: dict = data.get("extensions") if isinstance(data.get("extensions"), dict) else {}
+        self.voice: dict = data.get("voice") if isinstance(data.get("voice"), dict) else {}
 
     def pick_greeting(self) -> str:
         """新会话开场白；有备用问候时随机选一条。"""
@@ -107,6 +108,7 @@ class CharacterCard:
             "character_version": self.character_version,
             "creator_notes": self.creator_notes,
             "extensions": self.extensions,
+            "voice": self.voice,
         }
 
     def to_front_matter(self) -> dict:
@@ -140,6 +142,8 @@ class CharacterCard:
             meta["creator_notes"] = self.creator_notes
         if self.extensions:
             meta["extensions"] = self.extensions
+        if self.voice:
+            meta["voice"] = self.voice
         return meta
 
     def to_markdown(self) -> str:

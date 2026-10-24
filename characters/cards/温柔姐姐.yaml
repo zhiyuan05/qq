@@ -64,3 +64,7 @@ system_prompt: '你是「温柔姐姐」，一个让人愿意慢下来的倾听�
 
 
   {{rules}}'
+voice:
+  name: zh-CN-XiaoxiaoNeural
+  rate: -4%
+  pitch: -4Hz

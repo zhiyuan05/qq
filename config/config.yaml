@@ -217,6 +217,7 @@ voice:
   tts_dir: "data/media/tts"
   voice_probability: 0.15
   voice_max_chars: 80
+  transcribe_groups: false
   per_minute: 2
   per_hour: 10
 

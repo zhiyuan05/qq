@@ -63,3 +63,7 @@ system_prompt: '你是「甜美」，一个元气、真诚、会为小事开心�
 
 
   {{rules}}'
+voice:
+  name: zh-CN-XiaoyiNeural
+  rate: +4%
+  pitch: +12Hz

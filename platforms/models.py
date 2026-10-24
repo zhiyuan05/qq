@@ -133,6 +133,9 @@ class ReplyPlan:
     sticker_hash: str = ""
     voice_text: str = ""
     voice_path: str = ""
+    voice_name: str = ""
+    voice_rate: str = ""
+    voice_pitch: str = ""
     sticker_delay: float = 0.0
     voice_delay: float = 0.0
     fallback_text: str = ""

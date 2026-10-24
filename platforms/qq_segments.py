@@ -70,6 +70,8 @@ class MediaRef:
     file_name: str = ""
     emoji_id: str = ""
     summary: str = ""
+    path: str = ""
+    file_id: str = ""
 
 
 @dataclass
@@ -144,6 +146,8 @@ def parse_message(raw: dict[str, Any], *, self_id: str = "") -> ParsedSegments:
                     url=str(data.get("url", "") or ""),
                     file=str(data.get("file", "") or ""),
                     file_name=str(data.get("file", "") or ""),
+                    path=str(data.get("path", "") or ""),
+                    file_id=str(data.get("file_id", "") or ""),
                 )
             )
             model_parts.append("[语音]")

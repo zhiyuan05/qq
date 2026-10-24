@@ -111,6 +111,7 @@ def test_markdown_roundtrip_keeps_lorebook_and_alternate_greetings(tmp_path):
             "scenario": "测试场景",
             "post_history_instructions": "保持简短",
             "lorebook": [{"keys": ["测试"], "content": "这是一条设定。", "priority": 90}],
+            "voice": {"name": "zh-CN-XiaoyiNeural", "rate": "+8%", "pitch": "+18Hz"},
         }
     )
     manager.save("测试人格", card)
@@ -122,6 +123,7 @@ def test_markdown_roundtrip_keeps_lorebook_and_alternate_greetings(tmp_path):
     assert loaded.scenario == "测试场景"
     assert loaded.post_history_instructions == "保持简短"
     assert loaded.lorebook[0]["content"] == "这是一条设定。"
+    assert loaded.voice["name"] == "zh-CN-XiaoyiNeural"
 
 
 def test_import_and_export_v2_card(tmp_path):

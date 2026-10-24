@@ -143,6 +143,63 @@ async def test_media_message_forces_quote_and_can_select_sticker():
 
 
 @pytest.mark.asyncio
+async def test_explicit_voice_request_forces_voice_with_zero_probability():
+    humanizer = Humanizer(
+        HumanizeConfig(),
+        VoiceConfig(enabled=True, voice_probability=0.0, voice_max_chars=80),
+    )
+    message = _message(content="发条语音给我听听")
+
+    plan = await humanizer.plan("好呀。", message, rng=random.Random(1))
+
+    assert plan.voice_text == "好呀。"
+    assert plan.bubbles == []
+
+
+@pytest.mark.asyncio
+async def test_voice_suppression_overrides_probability():
+    humanizer = Humanizer(
+        HumanizeConfig(),
+        VoiceConfig(enabled=True, voice_probability=1.0, voice_max_chars=80),
+    )
+    message = _message(content="不要发语音，打字就好")
+
+    plan = await humanizer.plan("好呀。", message, rng=random.Random(1))
+
+    assert plan.voice_text == ""
+    assert plan.bubbles == ["好呀。"]
+
+
+@pytest.mark.asyncio
+async def test_voice_input_boosts_the_chance_of_a_voice_reply():
+    humanizer = Humanizer(
+        HumanizeConfig(),
+        VoiceConfig(enabled=True, voice_probability=0.0, voice_max_chars=80),
+    )
+    message = _message(content="[语音] 你好呀", message_type=MessageType.VOICE)
+
+    plan = await humanizer.plan("我在呢。", message, rng=random.Random(1))
+
+    assert plan.voice_text == "我在呢。"
+
+
+@pytest.mark.asyncio
+async def test_character_voice_profile_is_attached_to_the_plan():
+    humanizer = Humanizer(HumanizeConfig(), VoiceConfig(enabled=True, voice_max_chars=80))
+    message = _message(content="发个语音")
+
+    plan = await humanizer.plan(
+        "好呀。",
+        message,
+        voice_profile={"name": "zh-CN-XiaoyiNeural", "rate": "+8%", "pitch": "+18Hz"},
+    )
+
+    assert plan.voice_name == "zh-CN-XiaoyiNeural"
+    assert plan.voice_rate == "+8%"
+    assert plan.voice_pitch == "+18Hz"
+
+
+@pytest.mark.asyncio
 async def test_voice_replaces_first_bubble():
     humanizer = Humanizer(HumanizeConfig(), VoiceConfig(enabled=True, voice_probability=1.0, voice_max_chars=80))
     plan = await humanizer.plan("你好呀", _message(), rng=random.Random(6))

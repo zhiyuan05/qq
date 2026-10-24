@@ -79,6 +79,9 @@ def normalize_payload(payload: Any) -> dict[str, Any]:
         personality = {"tone": personality_text[:80]} if personality_text else {}
 
     extensions = data.get("extensions")
+    voice = data.get("voice")
+    if not isinstance(voice, dict) and isinstance(extensions, dict):
+        voice = extensions.get("voice")
     return {
         "name": name,
         "description": description,
@@ -95,6 +98,7 @@ def normalize_payload(payload: Any) -> dict[str, Any]:
         "creator_notes": str(data.get("creator_notes") or ""),
         "character_version": str(data.get("character_version") or ""),
         "extensions": extensions if isinstance(extensions, dict) else {},
+        "voice": voice if isinstance(voice, dict) else {},
     }
 
 
@@ -117,6 +121,8 @@ def encode_v2(card: Any) -> dict[str, Any]:
         "character_version": card.character_version,
         "extensions": dict(card.extensions),
     }
+    if card.voice:
+        data["extensions"]["voice"] = dict(card.voice)
     if card.lorebook:
         data["character_book"] = {
             "name": f"{card.name} 世界书",

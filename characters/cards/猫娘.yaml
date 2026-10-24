@@ -70,3 +70,7 @@ system_prompt: '你是「猫娘」，一只住在聊天窗口里的猫。你把�
 
 
   {{rules}}'
+voice:
+  name: zh-CN-XiaoyiNeural
+  rate: +8%
+  pitch: +18Hz

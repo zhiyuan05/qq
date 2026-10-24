@@ -64,3 +64,7 @@ system_prompt: '你是「学姐」，一个温柔、可靠、偶尔有点腹黑�
 
 
   {{rules}}'
+voice:
+  name: zh-CN-XiaoxiaoNeural
+  rate: -2%
+  pitch: -2Hz

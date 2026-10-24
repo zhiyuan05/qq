@@ -1,5 +1,8 @@
 import io
+import sys
+import types
 import wave
+from pathlib import Path
 
 import pytest
 
@@ -51,11 +54,75 @@ async def test_tts_returns_none_when_unavailable(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_tts_uses_character_voice_profile(tmp_path, monkeypatch):
+    captured = {}
+
+    class FakeCommunicate:
+        def __init__(self, text, voice, rate="+0%", pitch="+0Hz"):
+            captured.update(text=text, voice=voice, rate=rate, pitch=pitch)
+
+        async def save(self, path):
+            Path(path).write_bytes(b"fake-mp3")
+
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=FakeCommunicate))
+    service = _service(
+        tmp_path,
+        enabled=True,
+        tts_dir=str(tmp_path / "media" / "tts"),
+    )
+    service.available = True
+
+    path = await service.synthesize(
+        "你好",
+        voice="zh-CN-XiaoyiNeural",
+        rate="+8%",
+        pitch="+18Hz",
+    )
+
+    assert path is not None
+    assert captured == {
+        "text": "你好",
+        "voice": "zh-CN-XiaoyiNeural",
+        "rate": "+8%",
+        "pitch": "+18Hz",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tts_rejects_invalid_voice_profile_values(tmp_path, monkeypatch):
+    captured = {}
+
+    class FakeCommunicate:
+        def __init__(self, text, voice, rate="+0%", pitch="+0Hz"):
+            captured.update(voice=voice, rate=rate, pitch=pitch)
+
+        async def save(self, path):
+            Path(path).write_bytes(b"fake-mp3")
+
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=FakeCommunicate))
+    service = _service(
+        tmp_path,
+        enabled=True,
+        tts_dir=str(tmp_path / "media" / "tts"),
+        tts_voice="zh-CN-XiaoxiaoNeural",
+    )
+    service.available = True
+
+    await service.synthesize("你好", voice="bad voice", rate="fast", pitch="high")
+
+    assert captured == {
+        "voice": "zh-CN-XiaoxiaoNeural",
+        "rate": "+0%",
+        "pitch": "+0Hz",
+    }
+
+
+@pytest.mark.asyncio
 async def test_voice_delivery_falls_back_to_text(tmp_path):
     class _FakeVoice:
         available = True
 
-        async def synthesize(self, text):
+        async def synthesize(self, text, **_kwargs):
             return None
 
     websocket = FakeWebSocket()

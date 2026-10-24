@@ -9,6 +9,18 @@ from utils.config import HumanizeConfig, VoiceConfig
 
 _STICKER_MARKER = re.compile(r"\[sticker:\s*([^\]\n]{1,50})\]", re.IGNORECASE)
 _VOICE_MARKER = re.compile(r"\[voice\]", re.IGNORECASE)
+_VOICE_REQUEST = re.compile(
+    r"(?:发|来|用|说|念|读|整).{0,4}(?:语音|声音)"
+    r"|语音(?:回复|回答|说)"
+    r"|(?:说|念|读)给我听"
+    r"|想听(?:你|你说话|语音)",
+    re.IGNORECASE,
+)
+_VOICE_SUPPRESS = re.compile(
+    r"(?:不要|别|不用|不想)(?:再)?(?:发|用|听)?(?:语音|声音)"
+    r"|(?:语音|声音)(?:就)?(?:不用|不要)了",
+    re.IGNORECASE,
+)
 _SAFE_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _SENTENCE_SPLIT = re.compile(r"(?<=[。！？!?…])\s*|\n+")
 _FENCE = re.compile(r"(```.*?```)", re.S)
@@ -97,14 +109,27 @@ class Humanizer:
         *,
         stickers=None,
         rng: random.Random | None = None,
+        voice_profile: dict | None = None,
     ) -> ReplyPlan:
         rng = rng or random.Random()
         raw = text or ""
         cleaned, sticker_tag, voice_requested = self._extract_markers(raw)
-        if self.config.polish and not _FORMAT_REQUEST.search(message.content or ""):
+        user_text = message.content or ""
+        if _VOICE_SUPPRESS.search(user_text):
+            voice_requested = False
+            voice_suppressed = True
+        else:
+            voice_suppressed = False
+            if _VOICE_REQUEST.search(user_text):
+                voice_requested = True
+        if self.config.polish and not _FORMAT_REQUEST.search(user_text):
             cleaned = self._polish(cleaned)
 
         plan = ReplyPlan(humanized=message.group_id is None, fallback_text=cleaned)
+        profile = voice_profile if isinstance(voice_profile, dict) else {}
+        plan.voice_name = str(profile.get("name") or "")
+        plan.voice_rate = str(profile.get("rate") or "")
+        plan.voice_pitch = str(profile.get("pitch") or "")
         if not cleaned and not sticker_tag:
             plan.humanized = False
             return plan
@@ -126,13 +151,23 @@ class Humanizer:
                 plan.sticker_hash = sticker.hash
                 plan.sticker_delay = 0.6
 
+        voice_input = message.message_type is MessageType.VOICE or any(
+            getattr(attachment, "kind", None) is MessageType.VOICE
+            for attachment in message.attachments
+        )
+        voice_probability = self.voice.voice_probability
+        if voice_input:
+            # Answering a voice note with a voice note feels natural.
+            voice_probability = max(voice_probability, 0.6)
         wants_voice = (
-            message.group_id is None
+            not voice_suppressed
+            and message.group_id is None
             and self.voice.enabled
             and bubbles
             and len(bubbles[0]) <= self.voice.voice_max_chars
-            and (voice_requested or rng.random() < self.voice.voice_probability)
         )
+        if wants_voice and not voice_requested:
+            wants_voice = rng.random() < voice_probability
         if wants_voice:
             plan.voice_text = bubbles[0]
             plan.voice_delay = 0.4

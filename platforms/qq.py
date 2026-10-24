@@ -303,7 +303,10 @@ class QQPlatform(BasePlatform):
                     model_text = model_text.replace("[视频]", note, 1)
 
         transcript = ""
-        if not is_group and self.voice_service is not None and self.voice_service.available:
+        allow_voice = not is_group or bool(
+            self.voice_service and self.voice_service.config.transcribe_groups
+        )
+        if allow_voice and self.voice_service is not None and self.voice_service.available:
             voices = [
                 ref
                 for ref in parsed.media
@@ -317,7 +320,7 @@ class QQPlatform(BasePlatform):
                     self._metric("voice_transcribed")
                     parsed.text = f"{transcript} {parsed.text}".strip()
                     model_text = model_text.replace("[语音]", f"[语音] {transcript}", 1)
-        if not is_group and not transcript and any(
+        if allow_voice and not transcript and any(
             ref.kind is MessageType.VOICE for ref in parsed.media
         ):
             self._metric("voice_transcribe_failed")
@@ -379,11 +382,24 @@ class QQPlatform(BasePlatform):
         """Ask NapCat to convert SILK to WAV, then fall back to the raw URL."""
         if self.voice_service is None:
             return None, ""
-        if ref.file:
+
+        logger.info(
+            "收到语音消息（file=%s url=%s）",
+            bool(ref.file),
+            bool(ref.url),
+        )
+        files: list[str] = []
+        for value in (ref.file, ref.path, ref.file_id):
+            if not value:
+                continue
+            files.append(value)
+            if value.startswith("file://"):
+                files.append(value[len("file://") :])
+        for file_value in dict.fromkeys(files):
             try:
                 response = await self._call_action(
                     "get_record",
-                    {"file": ref.file, "out_format": "wav"},
+                    {"file": file_value, "out_format": "wav"},
                 )
                 data = response.get("data") or {}
                 encoded = str(data.get("base64") or "")
@@ -403,10 +419,14 @@ class QQPlatform(BasePlatform):
                     result = await self.voice_service.transcribe_url(url)
                     if result[1] or result[0] is not None:
                         return result
+                logger.info("get_record 未返回可转写内容（file=%s）", bool(file_value))
             except Exception as exc:
-                logger.debug("get_record 失败 (%s)", type(exc).__name__)
+                logger.info("get_record 失败 (%s)", type(exc).__name__)
         if ref.url:
-            return await self.voice_service.transcribe_url(ref.url)
+            result = await self.voice_service.transcribe_url(ref.url)
+            if result[1] or result[0] is not None:
+                return result
+        logger.info("语音转写失败：get_record 与 URL 均不可用")
         return None, ""
 
     async def _process_video(self, ref: MediaRef, attachments: list[Attachment]) -> str:
@@ -574,7 +594,12 @@ class QQPlatform(BasePlatform):
             voice_text = self.outbound_guard.filter(voice_text)
         voice_path = plan.voice_path
         if voice_text and not voice_path and self.voice_service is not None:
-            voice_path = await self.voice_service.synthesize(voice_text) or ""
+            voice_path = await self.voice_service.synthesize(
+                voice_text,
+                voice=plan.voice_name or None,
+                rate=plan.voice_rate or "+0%",
+                pitch=plan.voice_pitch or "+0Hz",
+            ) or ""
         if not bubbles and not plan.sticker_path and not voice_text:
             return
 

@@ -1679,7 +1679,12 @@ class Engine:
         ctx.response = final
         await self._record_usage(msg, session, llm, final)
         if plan_mode and self.humanizer is not None and final and msg.platform is Platform.QQ:
-            plan = await self.humanizer.plan(final, msg, stickers=self.sticker_library)
+            plan = await self.humanizer.plan(
+                final,
+                msg,
+                stickers=self.sticker_library,
+                voice_profile=getattr(character, "voice", {}),
+            )
             history_text = plan.history_text() or final
             await self._finish_chat(msg, session, history_text, is_new_session, commit=commit)
             return plan
