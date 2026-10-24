@@ -17,8 +17,8 @@ jobs:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
-      - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-python@v6.2.0
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -124,8 +124,8 @@ jobs:
     env:
       TEST_POSTGRES_URL: postgresql+asyncpg://chatbot:test-password@127.0.0.1:5432/chatbot_test
     steps:
-      - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-python@v6.2.0
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
@@ -138,14 +138,14 @@ jobs:
   container:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7
       - name: Validate Compose
         run: |
           cp .env.example .env
           docker compose config --quiet
           CHATBOT_POSTGRES_PASSWORD=test-password docker compose -f docker-compose.yml -f docker-compose.postgres.yml config --quiet
-      - uses: docker/setup-buildx-action@v4.1.0
-      - uses: docker/build-push-action@v7.3.0
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/build-push-action@v7.4.0
         with:
           context: .
           load: true
